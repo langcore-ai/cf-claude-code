@@ -451,6 +451,15 @@ export class MemoryAgentRuntime implements AgentRuntime {
 	}
 
 	/**
+	 * 列出全部会话快照。
+	 * 主要给 Worker API 和前端 sidebar 恢复最近会话用。
+	 * @returns 会话列表
+	 */
+	async listSessions(): Promise<SessionState[]> {
+		return this.sessionStore.list();
+	}
+
+	/**
 	 * 列出工作区目录的直接子节点。
 	 * @param sessionId 会话 id
 	 * @param path 目录路径

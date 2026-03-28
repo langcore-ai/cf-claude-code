@@ -301,6 +301,11 @@ export interface SessionStore {
 	 */
 	load(sessionId: string): Promise<SessionState | null>;
 	/**
+	 * 列出全部会话快照。
+	 * 默认按更新时间倒序返回，方便前端优先恢复最近一次会话。
+	 */
+	list(): Promise<SessionState[]>;
+	/**
 	 * 删除会话
 	 * @param sessionId 会话 id
 	 */

@@ -10,19 +10,19 @@ type TestBindings = {
 
 /**
  * 创建测试用 runtime factory。
- * 为了模拟 Worker 多次请求间的恢复行为，这里按 sessionId 复用 runtime 实例。
+ * 为了模拟 Worker 多次请求间的恢复行为，这里复用同一个 runtime 实例。
+ * 这样 `GET /api/sessions` 才能看到同一 store 中保存的全部会话。
  * @returns 可复用 runtime 工厂
  */
 function createTestRuntimeFactory(): WorkerRuntimeFactory<TestBindings> {
-	const runtimes = new Map<string, MemoryAgentRuntime>();
+	let runtime: MemoryAgentRuntime | null = null;
+	let turn = 0;
 	return (_env, sessionId) => {
-		const existing = runtimes.get(sessionId);
-		if (existing) {
-			return existing;
+		if (runtime) {
+			return runtime;
 		}
 
-		let turn = 0;
-		const runtime = createMemoryRuntime({
+		runtime = createMemoryRuntime({
 			aiClient: {
 				async generateTurn() {
 					turn += 1;
@@ -51,7 +51,6 @@ function createTestRuntimeFactory(): WorkerRuntimeFactory<TestBindings> {
 			},
 			workspaceName: `session-${sessionId}`,
 		});
-		runtimes.set(sessionId, runtime);
 		return runtime;
 	};
 }
@@ -120,6 +119,46 @@ describe("worker api", () => {
 		expect(response.status).toBe(200);
 		const payload = await response.json() as { session: { id: string } };
 		expect(payload.session.id).toBe(created.sessionId);
+	});
+
+	test("GET /api/sessions 返回已持久化的 session 列表", async () => {
+		const app = createApp(createTestRuntimeFactory());
+
+		const firstCreateResponse = await app.request("http://local/api/sessions", {
+			method: "POST",
+			body: JSON.stringify({}),
+			headers: {
+				"content-type": "application/json",
+			},
+		}, {
+			TEST_ONLY: true,
+		});
+		const firstSession = await firstCreateResponse.json() as { sessionId: string };
+
+		const secondCreateResponse = await app.request("http://local/api/sessions", {
+			method: "POST",
+			body: JSON.stringify({
+				systemPrompt: "second",
+			}),
+			headers: {
+				"content-type": "application/json",
+			},
+		}, {
+			TEST_ONLY: true,
+		});
+		const secondSession = await secondCreateResponse.json() as { sessionId: string };
+
+		const response = await app.request("http://local/api/sessions", {}, {
+			TEST_ONLY: true,
+		});
+
+		expect(response.status).toBe(200);
+		const payload = await response.json() as {
+			sessions: Array<{ id: string }>;
+		};
+		expect(payload.sessions.length).toBe(2);
+		expect(payload.sessions.map((session) => session.id)).toContain(firstSession.sessionId);
+		expect(payload.sessions.map((session) => session.id)).toContain(secondSession.sessionId);
 	});
 
 	test("GET /api/sessions/:id 对不存在 session 返回 404", async () => {

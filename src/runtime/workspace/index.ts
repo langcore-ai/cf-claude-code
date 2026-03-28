@@ -1,11 +1,14 @@
 import {
 	InMemoryFs,
+	type SqlBackend,
 	Workspace as ShellWorkspace,
 	WorkspaceFileSystem,
 	type FileSystem,
 	type InitialFiles,
 	type SqlSource,
 } from "@cloudflare/shell";
+
+import { adaptSqlSource } from "../adapters";
 
 /** 文件节点类型 */
 export type FileNodeType = "file" | "directory" | "symlink";
@@ -104,6 +107,32 @@ const ROOT_PATH = "/";
 const SHELL_WORKSPACE_REGISTRY = new WeakMap<object, Map<string, ShellWorkspace>>();
 
 /**
+ * 将 `SqlSource` 适配为可安全传给 `@cloudflare/shell` 的 backend。
+ *
+ * `@cloudflare/shell` 的 `Workspace` 构造函数会在内部先把 `sql` source 放进 WeakMap。
+ * Cloudflare 本地 dev 模拟出来的某些 D1 绑定对象虽然看起来是 object，
+ * 但直接作为 WeakMap key 会抛出 `Invalid value used as weak map key`。
+ *
+ * 这里在进入 shell 之前，先把 D1-like source 包装成普通的 `{ query, run }` backend，
+ * 从而绕开 shell 对原始 host object 做 WeakMap key 的那一步。
+ *
+ * @param source 原始 SQL 数据源
+ * @returns 可安全复用的 shell backend source
+ */
+function toShellSqlSource(source: SqlSource): SqlSource {
+	if (typeof source !== "object" || source === null) {
+		return source;
+	}
+
+	// 已经是 query/run 风格 backend 时直接复用，避免重复包装。
+	if ("query" in source && "run" in source) {
+		return source;
+	}
+
+	return adaptSqlSource(source) as SqlBackend;
+}
+
+/**
  * 规范化路径，统一收敛到绝对路径风格。
  * @param path 原始路径
  * @returns 规范化路径
@@ -124,34 +153,44 @@ export function normalizePath(path: string): string {
  * @returns 可复用的 shell workspace
  */
 function resolveShellWorkspace(options: DurableWorkspaceOptions): ShellWorkspace {
-	const source = options.sql;
+	const source = toShellSqlSource(options.sql);
 	if (typeof source !== "object" || source === null) {
 		return new ShellWorkspace({
-			sql: options.sql,
+			sql: source,
 			namespace: options.namespace,
 			name: options.name,
 		});
 	}
 
 	const identity = `${options.namespace ?? "default"}::${options.name}`;
-	let scopedRegistry = SHELL_WORKSPACE_REGISTRY.get(source);
-	if (!scopedRegistry) {
-		scopedRegistry = new Map();
-		SHELL_WORKSPACE_REGISTRY.set(source, scopedRegistry);
-	}
+	try {
+		let scopedRegistry = SHELL_WORKSPACE_REGISTRY.get(source);
+		if (!scopedRegistry) {
+			scopedRegistry = new Map();
+			SHELL_WORKSPACE_REGISTRY.set(source, scopedRegistry);
+		}
 
-	const existing = scopedRegistry.get(identity);
-	if (existing) {
-		return existing;
-	}
+		const existing = scopedRegistry.get(identity);
+		if (existing) {
+			return existing;
+		}
 
-	const workspace = new ShellWorkspace({
-		sql: options.sql,
-		namespace: options.namespace,
-		name: options.name,
-	});
-	scopedRegistry.set(identity, workspace);
-	return workspace;
+		const workspace = new ShellWorkspace({
+			sql: source,
+			namespace: options.namespace,
+			name: options.name,
+		});
+		scopedRegistry.set(identity, workspace);
+		return workspace;
+	} catch {
+		// 某些 dev/runtime 绑定虽然表面上是 object，但不能作为 WeakMap key。
+		// 这里再退化为不复用实例，优先保证 session 主链路可用。
+		return new ShellWorkspace({
+			sql: source,
+			namespace: options.namespace,
+			name: options.name,
+		});
+	}
 }
 
 /**

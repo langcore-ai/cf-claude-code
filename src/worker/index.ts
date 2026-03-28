@@ -2,7 +2,12 @@ import { nanoid } from "nanoid";
 import { Hono, type Context } from "hono";
 
 import { createOpenAiClient } from "../runtime/adapters";
-import { createDurableRuntime, DEFAULT_SESSION_CONFIG, type MemoryAgentRuntime } from "../runtime";
+import {
+	createDurableRuntime,
+	createMemoryRuntime,
+	DEFAULT_SESSION_CONFIG,
+	type MemoryAgentRuntime,
+} from "../runtime";
 import type { SessionState } from "../runtime";
 
 /** Worker 侧 runtime 默认模型名 */
@@ -62,6 +67,8 @@ interface UploadedWorkspaceFile {
 
 /** API 错误码 */
 type ApiErrorCode = "SESSION_NOT_FOUND" | "INVALID_REQUEST" | "RUNTIME_ERROR";
+/** 本地 dev 回退用的 memory runtime 注册表 */
+const FALLBACK_MEMORY_RUNTIMES = new Map<string, MemoryAgentRuntime>();
 
 /**
  * 为 session 派生稳定的 workspace 名称。
@@ -70,6 +77,32 @@ type ApiErrorCode = "SESSION_NOT_FOUND" | "INVALID_REQUEST" | "RUNTIME_ERROR";
  */
 function buildWorkspaceName(sessionId: string): string {
 	return `session-${sessionId}`;
+}
+
+/**
+ * 在本地 memory fallback 场景下聚合全部会话。
+ *
+ * `GET /api/sessions` 没有具体 sessionId，原本会用固定的 `__session_index__`
+ * 去构造 runtime。对于 durable store 这没问题，但对按 sessionId 缓存的
+ * memory fallback 来说，这个 runtime 看不到其他会话的内存 store。
+ *
+ * 因此在 dev fallback 时，需要把当前已缓存的 runtime 都扫一遍，再把 session 聚合出来。
+ * @returns 会话快照列表
+ */
+async function listFallbackMemorySessions(): Promise<SessionState[]> {
+	const sessions = await Promise.all(
+		[...FALLBACK_MEMORY_RUNTIMES.entries()].map(async ([sessionId, runtime]) => {
+			try {
+				return await runtime.getSession(sessionId);
+			} catch {
+				return null;
+			}
+		}),
+	);
+
+	return sessions
+		.filter((session): session is SessionState => session !== null)
+		.sort((left, right) => left.id.localeCompare(right.id));
 }
 
 /**
@@ -264,16 +297,41 @@ async function parseWorkspaceUploadFormData(formData: FormData): Promise<Uploade
  * @returns runtime 实例
  */
 export function createWorkerRuntime(env: WorkerBindings, sessionId: string): MemoryAgentRuntime {
-	return createDurableRuntime({
-		aiClient: createOpenAiClient({
-			apiKey: env.OPENAI_API_KEY,
-			baseURL: env.OPENAI_BASE_URL,
-			model: DEFAULT_MODEL,
-		}),
-		sql: env.RUNTIME_DB,
-		namespace: "runtime",
-		workspaceName: buildWorkspaceName(sessionId),
+	const aiClient = createOpenAiClient({
+		apiKey: env.OPENAI_API_KEY,
+		baseURL: env.OPENAI_BASE_URL,
+		model: DEFAULT_MODEL,
 	});
+
+	try {
+		return createDurableRuntime({
+			aiClient,
+			sql: env.RUNTIME_DB,
+			namespace: "runtime",
+			workspaceName: buildWorkspaceName(sessionId),
+		});
+	} catch (error) {
+		// 本地 dev 场景下，Cloudflare 绑定模拟偶尔会触发 `Invalid value used as weak map key`
+		// 之类的初始化异常。这里退化到按 session 维度缓存的 memory runtime，保证 playground 可用。
+		if (
+			error instanceof Error &&
+			error.message.includes("weak map key")
+		) {
+			const existing = FALLBACK_MEMORY_RUNTIMES.get(sessionId);
+			if (existing) {
+				return existing;
+			}
+
+			const runtime = createMemoryRuntime({
+				aiClient,
+				workspaceName: buildWorkspaceName(sessionId),
+			});
+			FALLBACK_MEMORY_RUNTIMES.set(sessionId, runtime);
+			return runtime;
+		}
+
+		throw error;
+	}
 }
 
 /**
@@ -325,6 +383,26 @@ export function createApp<TBindings extends object = WorkerBindings>(
 				500,
 				"RUNTIME_ERROR",
 				error instanceof Error ? error.message : "Failed to create session",
+			);
+		}
+	});
+
+	app.get("/api/sessions", async (c) => {
+		try {
+			// session 列表不依赖某个已存在 sessionId，使用固定管理 workspace name 装配 runtime 即可。
+			const runtime = runtimeFactory(c.env, "__session_index__");
+			const sessions = await runtime.listSessions();
+			const resolvedSessions =
+				sessions.length > 0 ? sessions : await listFallbackMemorySessions();
+			return c.json({
+				sessions: resolvedSessions.map(toSessionDto),
+			});
+		} catch (error) {
+			return jsonError(
+				c,
+				500,
+				"RUNTIME_ERROR",
+				error instanceof Error ? error.message : "Failed to list sessions",
 			);
 		}
 	});

@@ -10,7 +10,7 @@
 
 - 当前仓库是未来 Agent Runtime 的主实现仓库。
 - 当前根工程已经完成 Phase 0 换轨，并完成了 Phase 4A：Runtime Core、双后端 workspace、durable state、`state_exec` 与 Worker 主链路 API 接线。
-- Worker 当前除了 session 主链路，还已经暴露 workspace tree / file / exists / upload / copy / move / rename 文件系统 API，供前端 playground 查看、上传和手动编辑工作区。
+- Worker 当前除了 session 主链路，还已经暴露 `GET /api/sessions` 列表接口，以及 workspace tree / file / exists / upload / copy / move / rename 文件系统 API，供前端 playground 查看、恢复和手动编辑工作区。
 - `external/learn-claude-code` 用来理解 Claude Code 风格 harness 的主体逻辑。
 - `external/my-claude-code` 用来参考内存态 runtime 的接口与分层方式。
 - 不负责在当前阶段直接复刻完整 Claude Code CLI。
@@ -33,7 +33,7 @@
 ## 3. 模块结构（Module Structure）
 
 - `src/worker/index.ts`：当前 Worker 主链路与 workspace 文件系统 API 入口，已接入 durable runtime。
-- `src/react-app/`：当前最小 playground 壳。
+- `src/react-app/`：当前 playground 前端入口，已落地 sidebar + chat / preview 的页面框架、真实 workspace 文件树、文件预览以及上传文件模态框，并已接入 Session 主链路与 session 列表恢复逻辑。
 - `src/runtime/`：当前 runtime 核心实现目录，已具备 runtime core + durable 接线。
 - `external/learn-claude-code/`：Claude Code 风格 harness 的教学拆解参考。
 - `external/my-claude-code/`：内存态 runtime 的代码参考。
@@ -65,7 +65,7 @@
 
 - 根 README 和本文件定义了项目方向；后续目录切分、接口命名、模块边界都应与这里保持一致。
 - `src/worker/` 当前已落地 session 主链路 API 和 workspace 文件系统 API（含上传、copy、move、rename）；后续会继续扩展 tools、subagents 和事件流。
-- `src/react-app/` 在 runtime core 初步可用前继续保持最小壳，不参与接口设计。
+- `src/react-app/` 当前已开始承接 playground 联调，但仍应保持“验证 runtime 能力”的最小闭环，不要提前扩散成完整 IDE。
 - `external/*` 是参考实现，不应被当成主项目最终目录结构直接复制。
 - D1 schema 和 AI SDK adapter 一旦落地，会成为后续 runtime 分层的稳定基础，变更成本较高。
 - durable workspace / VFS 边界已经落地为 `@cloudflare/shell Workspace({ sql })` + runtime adapter，后续扩展应沿这个边界继续推进。
@@ -75,7 +75,7 @@
 - 当前阶段最重要的是先固定项目目标和目录边界，不要顺手在模板工程上直接堆零散能力。
 - 文档里可以写目标、路径和 TODO，但不能把未实现的功能写成已完成事实。
 - 后续如果 runtime 核心职责或目录边界发生变化，需要同步更新本文件和根 README。
-- 在 runtime core 初步可用前，`src/react-app/` 只维持最小占位壳，不作为功能开发主战场。
+- `src/react-app/` 当前应优先围绕 session / workspace 联调推进；复杂前端能力必须由已存在的 Worker API 驱动，不能反向定义 runtime 协议。
 
 ## 8. 相关文档（Related Docs）
 

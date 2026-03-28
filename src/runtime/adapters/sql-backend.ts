@@ -126,6 +126,18 @@ export class D1SessionStore implements SessionStore {
 		return payload ? JSON.parse(payload) : null;
 	}
 
+	/**
+	 * 列出全部会话快照。
+	 * @returns 会话列表，按 id 升序排列
+	 */
+	async list(): Promise<SessionState[]> {
+		await this.ensureInit();
+		const rows = await this.sql.query<{ payload: string }>(
+			`SELECT payload FROM ${this.tableName} ORDER BY session_id ASC`,
+		);
+		return rows.map((row) => JSON.parse(row.payload));
+	}
+
 	async delete(sessionId: string): Promise<void> {
 		await this.ensureInit();
 		await this.sql.run(`DELETE FROM ${this.tableName} WHERE session_id = ?`, sessionId);

@@ -26,6 +26,17 @@ export class InMemorySessionStore implements SessionStore {
 	}
 
 	/**
+	 * 列出全部会话。
+	 * 当前先固定按 id 排序，避免本地/持久化后端出现不一致顺序。
+	 * @returns 会话快照列表
+	 */
+	async list(): Promise<SessionState[]> {
+		return [...this.sessions.values()]
+			.map((session) => structuredClone(session))
+			.sort((left, right) => left.id.localeCompare(right.id));
+	}
+
+	/**
 	 * 删除会话
 	 * @param sessionId 会话 id
 	 */
