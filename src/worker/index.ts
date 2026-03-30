@@ -17,11 +17,18 @@ const DEFAULT_MODEL = "gpt-5-mini";
 export interface WorkerBindings {
 	/** session / transcript / subagent jobs 的 D1 存储 */
 	RUNTIME_DB: D1Database;
+	/** durable workspace 的大文件对象存储 */
+	RUNTIME_BUCKET?: R2Bucket;
 	/** OpenAI 兼容接口 API Key */
 	OPENAI_API_KEY: string;
 	/** OpenAI 兼容接口 Base URL */
 	OPENAI_BASE_URL: string;
 }
+
+/** 默认 R2 对象前缀 */
+const DEFAULT_R2_PREFIX = "workspace";
+/** 默认切换到 R2 的大文件阈值，单位字节 */
+const DEFAULT_R2_INLINE_THRESHOLD = 1_500_000;
 
 /** Worker 路由环境 */
 type WorkerAppEnv<TBindings extends object> = {
@@ -320,6 +327,9 @@ export function createWorkerRuntime(env: WorkerBindings, sessionId: string): Mem
 		return createDurableRuntime({
 			aiClient,
 			sql: env.RUNTIME_DB,
+			r2: env.RUNTIME_BUCKET,
+			r2Prefix: DEFAULT_R2_PREFIX,
+			inlineThreshold: DEFAULT_R2_INLINE_THRESHOLD,
 			namespace: "runtime",
 			workspaceName: buildWorkspaceName(sessionId),
 		});
@@ -363,6 +373,9 @@ export function createApp<TBindings extends object = WorkerBindings>(
 			project: "cf-claude-code",
 			stage: "phase-4a-worker-api",
 			runtime: "durable-runtime",
+			r2Enabled: Boolean((c.env as WorkerBindings).RUNTIME_BUCKET),
+			r2Prefix: DEFAULT_R2_PREFIX,
+			r2InlineThreshold: DEFAULT_R2_INLINE_THRESHOLD,
 		}),
 	);
 

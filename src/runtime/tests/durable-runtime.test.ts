@@ -62,6 +62,63 @@ function hasToolResult(messages: Message[]): boolean {
 	return messages.some((message) => message.content.some((block) => block.type === "tool_result"));
 }
 
+/**
+ * 最小 R2 模拟实现。
+ * 这里只覆盖 workspace 落大文件到 R2 所需的最小方法。
+ */
+class FakeR2Bucket {
+	/** 对象存储内容 */
+	private readonly objects = new Map<string, Uint8Array>();
+
+	/**
+	 * 写入对象
+	 * @param key 对象 key
+	 * @param value 对象内容
+	 */
+	async put(key: string, value: ArrayBuffer | ArrayBufferView): Promise<void> {
+		const bytes = value instanceof ArrayBuffer
+			? new Uint8Array(value)
+			: new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+		this.objects.set(key, new Uint8Array(bytes));
+	}
+
+	/**
+	 * 读取对象
+	 * @param key 对象 key
+	 * @returns 只包含 arrayBuffer 的最小对象
+	 */
+	async get(key: string): Promise<{ arrayBuffer(): Promise<ArrayBuffer>; httpMetadata?: { contentType?: string } } | null> {
+		const bytes = this.objects.get(key);
+		if (!bytes) {
+			return null;
+		}
+
+		return {
+			arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+			httpMetadata: {},
+		};
+	}
+
+	/**
+	 * 删除对象
+	 * @param keys 对象 key 或 key 列表
+	 */
+	async delete(keys: string | string[]): Promise<void> {
+		for (const key of Array.isArray(keys) ? keys : [keys]) {
+			this.objects.delete(key);
+		}
+	}
+
+	/**
+	 * 判断对象是否存在
+	 * @param key 对象 key
+	 * @returns 是否存在
+	 */
+	has(key: string): boolean {
+		return this.objects.has(key);
+	}
+}
+
 describe("durable workspace and stores", () => {
 	test("内存与 durable workspace 适配器具备一致的最小语义", async () => {
 		const database = new Database(":memory:");
@@ -147,6 +204,34 @@ describe("durable workspace and stores", () => {
 
 		const skill = await provider.open("readme-ai-docs");
 		expect(await skill?.readEntry()).toContain("# Skill");
+	});
+
+	test("durable workspace 在配置 R2 且超过阈值时会把大文件落到 R2", async () => {
+		const database = new Database(":memory:");
+		const sql = createSqlBackend(database);
+		const bucket = new FakeR2Bucket();
+		const workspace = new DurableWorkspaceAdapter({
+			sql,
+			r2: bucket as unknown as R2Bucket,
+			r2Prefix: "workspace",
+			inlineThreshold: 8,
+			name: "durable-r2",
+			namespace: "runtime_r2",
+		});
+
+		await workspace.files.writeFile("/large.txt", "this content is definitely larger than eight bytes");
+		const rows = sql.query<Array<{
+			path: string;
+			storage_backend: string;
+			r2_key: string | null;
+		}>[number]>(
+			"SELECT path, storage_backend, r2_key FROM cf_workspace_runtime_r2 WHERE path = ?",
+			"/large.txt",
+		);
+
+		expect(rows[0]?.storage_backend).toBe("r2");
+		expect(rows[0]?.r2_key).toBeString();
+		expect(bucket.has(rows[0]!.r2_key!)).toBe(true);
 	});
 
 	test("durable runtime 恢复后仍可看到 workspace 与 subagent job", async () => {

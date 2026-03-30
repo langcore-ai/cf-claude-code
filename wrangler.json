@@ -7,6 +7,19 @@
 	"observability": {
 		"enabled": true
 	},
+	"d1_databases": [
+		{
+			"binding": "RUNTIME_DB",
+			"database_name": "cf-claude-code",
+			"database_id": "f35a569d-a678-4ca7-aedd-c44f90f00e31"
+		}
+	],
+	"r2_buckets": [
+		{
+			"binding": "RUNTIME_BUCKET",
+			"bucket_name": "cf-claude-code-runtime"
+		}
+	],
 	"upload_source_maps": true,
 	"assets": {
 		"directory": "./dist/client",

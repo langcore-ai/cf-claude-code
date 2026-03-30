@@ -28,6 +28,12 @@ export interface CreateMemoryRuntimeOptions {
 export interface CreateDurableRuntimeOptions {
 	aiClient: AIClient;
 	sql: SqlSource;
+	/** 可选 R2 存储桶；用于承接超过阈值的大文件 */
+	r2?: R2Bucket;
+	/** 可选 R2 对象前缀 */
+	r2Prefix?: string;
+	/** 切换到 R2 的内联阈值，单位字节 */
+	inlineThreshold?: number;
 	namespace?: string;
 	workspaceName: string;
 	skills?: InMemorySkillSeed[];
@@ -65,6 +71,9 @@ export function createMemoryRuntime(options: CreateMemoryRuntimeOptions): Memory
 export function createDurableRuntime(options: CreateDurableRuntimeOptions): MemoryAgentRuntime {
 	const workspace = new DurableWorkspaceAdapter({
 		sql: options.sql,
+		r2: options.r2,
+		r2Prefix: options.r2Prefix,
+		inlineThreshold: options.inlineThreshold,
 		namespace: options.namespace,
 		name: options.workspaceName,
 	});

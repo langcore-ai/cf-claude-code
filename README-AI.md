@@ -52,6 +52,7 @@
   - `SessionStore` -> D1
   - `AIClient` -> AI SDK adapter
   - `Workspace / VFS` -> durable backend + in-memory view
+- 当前云端/Worker 语义里，session 已经是独立持久化对象，但 durable workspace 仍按“单共享测试工作区”运行，不按 session 隔离。这个阶段性模型当前视为可接受；未来引入 `project` 后，工作区应转为按 project 隔离，session 共享所属 project 的 workspace。
 
 ## 5. 关键入口（Entry Points）
 
@@ -71,6 +72,8 @@
 - `external/*` 是参考实现，不应被当成主项目最终目录结构直接复制。
 - D1 schema 和 AI SDK adapter 一旦落地，会成为后续 runtime 分层的稳定基础，变更成本较高。
 - durable workspace / VFS 边界已经落地为 `@cloudflare/shell Workspace({ sql })` + runtime adapter，后续扩展应沿这个边界继续推进。
+- durable workspace 当前已预留并接通可选 R2 绑定：大文件可按阈值自动落到 R2，小文件继续内联存于 D1。
+- 当前不要把“一个 session 一个工作区”当成既成事实；至少在现阶段实现里，多个 session 会共享同一份 durable 测试工作区。
 
 ## 7. 约束与注意事项（Constraints & Pitfalls）
 

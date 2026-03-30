@@ -95,6 +95,12 @@ export interface Workspace {
 export interface DurableWorkspaceOptions {
 	/** SQL 数据源 */
 	sql: SqlSource;
+	/** 可选 R2 存储桶；大文件达到阈值后会落到这里 */
+	r2?: R2Bucket;
+	/** R2 对象前缀；不传时由 shell 按 workspace 名推导 */
+	r2Prefix?: string;
+	/** 大文件切换到 R2 的阈值，单位字节 */
+	inlineThreshold?: number;
 	/** workspace 命名空间 */
 	namespace?: string;
 	/** 工作区名称 */
@@ -157,6 +163,9 @@ function resolveShellWorkspace(options: DurableWorkspaceOptions): ShellWorkspace
 	if (typeof source !== "object" || source === null) {
 		return new ShellWorkspace({
 			sql: source,
+			r2: options.r2,
+			r2Prefix: options.r2Prefix,
+			inlineThreshold: options.inlineThreshold,
 			namespace: options.namespace,
 			name: options.name,
 		});
@@ -177,6 +186,9 @@ function resolveShellWorkspace(options: DurableWorkspaceOptions): ShellWorkspace
 
 		const workspace = new ShellWorkspace({
 			sql: source,
+			r2: options.r2,
+			r2Prefix: options.r2Prefix,
+			inlineThreshold: options.inlineThreshold,
 			namespace: options.namespace,
 			name: options.name,
 		});
@@ -187,6 +199,9 @@ function resolveShellWorkspace(options: DurableWorkspaceOptions): ShellWorkspace
 		// 这里再退化为不复用实例，优先保证 session 主链路可用。
 		return new ShellWorkspace({
 			sql: source,
+			r2: options.r2,
+			r2Prefix: options.r2Prefix,
+			inlineThreshold: options.inlineThreshold,
 			namespace: options.namespace,
 			name: options.name,
 		});
