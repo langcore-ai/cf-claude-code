@@ -82,7 +82,7 @@ export function createDefaultTools(): RuntimeTool[] {
 			"state_exec",
 			tool({
 				description:
-					"执行一段可访问 state.* 的完整 JavaScript，用于复杂文件和工作区操作。必须传入 code，且 code 必须是完整的 async () => { ... } 函数；不要空调用，也不要只返回待执行代码。",
+					"Executes complete JavaScript code with access to state.* for structured workspace operations.\n\nBefore executing the code, please follow these steps:\n\n1. Directory Verification:\n   - If the code will create new directories or files, first verify the parent directory exists and is the correct location.\n\n2. Code Execution:\n   - The code argument is required.\n   - code MUST be a complete async () => { ... } function.\n   - The function should perform the actual operation and return a final value.\n   - Do not return code for later execution. Execute the actual operation now.\n   - Use workspace-style absolute paths such as /README.md instead of relative paths.\n\nUsage notes:\n- Prefer this tool for complex multi-file work, search-and-replace, JSON operations, tree inspection, or other structured workspace actions.\n- If the execution result is not a string, it will be returned to you as JSON.\n- If you still need a simple one-file read, write, or directory listing, prefer the dedicated read_file, write_file, or list_files tools.",
 				inputSchema: z.object({
 					code: z.string(),
 					description: z.string().optional(),
@@ -119,7 +119,8 @@ export function createDefaultTools(): RuntimeTool[] {
 		createRuntimeTool(
 			"subagent_run",
 			tool({
-				description: "同步执行一个 fresh-context subagent，并返回摘要",
+				description:
+					"Launch a new agent to handle complex, multi-step tasks autonomously.\n\nWhen using this tool:\n- Use it for complex research, code search, and multi-step tasks where you are not confident you will find the right match in the first few tries.\n- If you want to read a specific file path, use read_file instead.\n- If you want to inspect a specific directory, use list_files instead.\n- The result returned by the agent is not visible to the user. To show the user the result, you should send a text message back to the user with a concise summary of the result.\n- Each agent invocation is stateless. You will not be able to send additional messages to the agent, nor will the agent be able to communicate with you outside of its final report. Therefore, your prompt should contain a highly detailed task description for the agent to perform autonomously and you should specify exactly what information the agent should return back to you in its final and only message to you.\n- The agent's outputs should generally be trusted.\n- Clearly tell the agent whether you expect it to write code or just to do research (search, file reads, etc.), since it is not aware of the user's intent.\n- Launch multiple agents concurrently whenever possible, using multiple tool calls in a single response.",
 				inputSchema: z.object({
 					prompt: z.string(),
 					description: z.string().optional(),
@@ -148,7 +149,8 @@ export function createDefaultTools(): RuntimeTool[] {
 		createRuntimeTool(
 			"subagent_start",
 			tool({
-				description: "创建异步 subagent job 骨架",
+				description:
+					"Create an asynchronous subagent job handle for later status checks. Use this only when you explicitly need a queued job instead of an immediate final summary.",
 				inputSchema: z.object({
 					prompt: z.string(),
 					description: z.string().optional(),
@@ -173,7 +175,7 @@ export function createDefaultTools(): RuntimeTool[] {
 		createRuntimeTool(
 			"subagent_status",
 			tool({
-				description: "读取单个 subagent job 状态",
+				description: "Read the current status and summary information for a single subagent job.",
 				inputSchema: z.object({
 					jobId: z.string(),
 				}),
@@ -194,7 +196,7 @@ export function createDefaultTools(): RuntimeTool[] {
 		createRuntimeTool(
 			"subagent_list",
 			tool({
-				description: "列出当前会话下的 subagent jobs",
+				description: "List all subagent jobs for the current session.",
 				inputSchema: z.object({}),
 
 			}),
@@ -213,9 +215,10 @@ export function createDefaultTools(): RuntimeTool[] {
 		createRuntimeTool(
 			"read_file",
 			tool({
-				description: "读取工作区中的文本文件",
+				description:
+					"Reads a file from the workspace filesystem. You can access any workspace file directly by using this tool.\n\nAssume this tool is able to read all files in the current workspace. If the User provides a path to a file assume that path is valid. It is okay to read a file that does not exist; an error will be returned.\n\nUsage:\n- The path parameter must be a workspace absolute path, not a relative path.\n- It is generally better to read the whole file rather than guess at its contents.\n- You have the capability to call multiple tools in a single response. It is often better to speculatively read multiple files as a batch when they are potentially useful.\n- If you are reading a file inside a skill directory, prefer read_skill_file. If you are reading a skill entry file, prefer load_skill.",
 				inputSchema: z.object({
-					path: z.string(),
+					path: z.string().describe("The absolute path to the file to read"),
 				}),
 
 			}),
@@ -233,12 +236,12 @@ export function createDefaultTools(): RuntimeTool[] {
 			"write_file",
 			tool({
 				description:
-					"向工作区写入文本文件。path 必须是具体文件路径，例如 /README.md；不要把 / 当成文件路径。如果用户要求在根目录创建文件，应写成 /<文件名>。",
+					"Writes a file to the workspace filesystem.\n\nUsage:\n- This tool will overwrite the existing file if there is one at the provided path.\n- If this is an existing file, you MUST use the read_file tool first to read the file's contents.\n- ALWAYS prefer editing existing files in the codebase. NEVER write new files unless explicitly required.\n- NEVER proactively create documentation files (*.md) or README files. Only create documentation files if explicitly requested by the User.\n- Only use emojis if the user explicitly requests it. Avoid writing emojis to files unless asked.\n- path must be a specific file path such as /README.md. Do not use / as a file path. If the user wants a file in the root directory, use /<filename>.",
 				inputSchema: z.object({
 					path: z
 						.string()
-						.describe("文件路径，必须是具体文件路径，例如 /README.md；不要把 / 当成文件路径。如果用户要求在根目录创建文件，应写成 /<文件名>。"),
-					content: z.string().describe("文件内容"),
+						.describe("The absolute path to the file to write. Must be a specific file path such as /README.md, not /."),
+					content: z.string().describe("The content to write to the file"),
 				}),
 
 			}),
@@ -256,9 +259,10 @@ export function createDefaultTools(): RuntimeTool[] {
 		createRuntimeTool(
 			"list_files",
 			tool({
-				description: "列出工作区目录的直接子节点",
+				description:
+					"Lists files and directories in a given path. The path parameter must be a workspace absolute path, not a relative path. You can optionally inspect a directory root by omitting path, which defaults to /. You should generally prefer more targeted tools when you already know exactly which files to inspect.",
 				inputSchema: z.object({
-					path: z.string().optional(),
+					path: z.string().optional().describe("The absolute path to the directory to list"),
 				}),
 
 			}),
@@ -276,7 +280,7 @@ export function createDefaultTools(): RuntimeTool[] {
 			"TodoWrite",
 			tool({
 				description:
-					"整体更新当前 todo 列表。每个 todo 必须是一个最小可执行步骤，一项只做一件事；不要把多个文件、端点、依赖或页面改动塞进同一项。复杂需求必须拆成多条 items。",
+					"Use this tool to create and manage a structured task list for your current coding session. This helps you track progress, organize complex tasks, and demonstrate thoroughness to the user. It also helps the user understand the progress of the task and overall progress of their requests.\n\nWhen to Use This Tool\nUse this tool proactively in these scenarios:\n1. Complex multi-step tasks - When a task requires 3 or more distinct steps or actions\n2. Non-trivial and complex tasks - Tasks that require careful planning or multiple operations\n3. User explicitly requests todo list - When the user directly asks you to use the todo list\n4. User provides multiple tasks - When users provide a list of things to be done\n5. After receiving new instructions - Immediately capture user requirements as todos\n6. When you start working on a task - Mark it as in_progress BEFORE beginning work. Ideally you should only have one todo as in_progress at a time\n7. After completing a task - Mark it as completed and add any new follow-up tasks discovered during implementation\n\nWhen NOT to Use This Tool\nSkip using this tool when:\n1. There is only a single, straightforward task\n2. The task is trivial and tracking it provides no organizational benefit\n3. The task can be completed in less than 3 trivial steps\n4. The task is purely conversational or informational\n\nTask States and Management\n- pending: Task not yet started\n- in_progress: Currently working on (limit to ONE task at a time)\n- completed: Task finished successfully\n\nTask Management:\n- Update task status in real-time as you work\n- Mark tasks complete IMMEDIATELY after finishing (don't batch completions)\n- Only have ONE task in_progress at any time\n- Complete current tasks before starting new ones\n- Remove tasks that are no longer relevant from the list entirely\n\nTask Completion Requirements:\n- ONLY mark a task as completed when you have FULLY accomplished it\n- If you encounter errors, blockers, or cannot finish, keep the task as in_progress\n- When blocked, create a new task describing what needs to be resolved\n\nTask Breakdown:\n- Create specific, actionable items\n- Break complex tasks into smaller, manageable steps\n- Use clear, descriptive task names\n- Each todo in this runtime must still be a minimal executable step; do not combine multiple files, endpoints, dependency changes, or page changes into one item.\n\nWhen in doubt, use this tool.",
 				inputSchema: z.object({
 					items: z.array(
 						z.object({
@@ -318,7 +322,7 @@ export function createDefaultTools(): RuntimeTool[] {
 		createRuntimeTool(
 			"load_skill",
 			tool({
-				description: "读取某个 skill 的入口文件",
+				description: "读取某个 skill 的入口文件 SKILL.md。",
 				inputSchema: z.object({
 					name: z.string(),
 				}),
@@ -341,7 +345,7 @@ export function createDefaultTools(): RuntimeTool[] {
 		createRuntimeTool(
 			"list_skill_files",
 			tool({
-				description: "列出 skill 根目录下的文件",
+				description: "列出某个 skill 根目录下的文件和目录。",
 				inputSchema: z.object({
 					name: z.string(),
 				}),
@@ -365,7 +369,7 @@ export function createDefaultTools(): RuntimeTool[] {
 		createRuntimeTool(
 			"read_skill_file",
 			tool({
-				description: "读取 skill 内的任意文本文件",
+				description: "读取某个 skill 目录内的任意文本文件。",
 				inputSchema: z.object({
 					name: z.string(),
 					path: z.string(),
@@ -391,7 +395,7 @@ export function createDefaultTools(): RuntimeTool[] {
 		createRuntimeTool(
 			"compact",
 			tool({
-				description: "手动触发会话压缩",
+				description: "手动触发当前会话压缩，用于在上下文过长时保留连续性摘要。",
 				inputSchema: z.object({}),
 
 			}),
@@ -407,7 +411,7 @@ export function createDefaultTools(): RuntimeTool[] {
 		createRuntimeTool(
 			"task_create",
 			tool({
-				description: "创建最小 task",
+				description: "创建一个 task，用于记录当前会话中的独立工作项。",
 				inputSchema: z.object({
 					title: z.string(),
 					description: z.string().optional(),
@@ -433,7 +437,7 @@ export function createDefaultTools(): RuntimeTool[] {
 		createRuntimeTool(
 			"task_list",
 			tool({
-				description: "列出当前会话 task",
+				description: "列出当前会话中的全部 tasks。",
 				inputSchema: z.object({}),
 
 			}),
@@ -460,7 +464,7 @@ export function createDefaultTools(): RuntimeTool[] {
 		createRuntimeTool(
 			"task_update",
 			tool({
-				description: "更新最小 task 状态或内容",
+				description: "更新 task 的状态、标题、描述或依赖关系。",
 				inputSchema: z.object({
 					id: z.string(),
 					title: z.string().optional(),
@@ -498,7 +502,7 @@ export function createDefaultTools(): RuntimeTool[] {
 		createRuntimeTool(
 			"task_get",
 			tool({
-				description: "获取单个 task 的完整信息",
+				description: "读取单个 task 的完整信息。",
 				inputSchema: z.object({
 					id: z.string(),
 				}),

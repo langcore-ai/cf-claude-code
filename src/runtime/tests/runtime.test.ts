@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { InMemorySessionStore } from "../adapters";
 import { createMemoryRuntime, MemoryAgentRuntime, SUBAGENT_TOOL_NAMES } from "../core";
 import { InMemorySkillProvider } from "../skills";
 import type { AIClient, GenerateTurnInput, ModelTurnResult } from "../types";
@@ -82,6 +83,40 @@ describe("MemoryAgentRuntime", () => {
 		const snapshot = await runtime.getSession(session.id);
 
 		expect(snapshot.messages.at(-1)?.role).toBe("assistant");
+	});
+
+	test("session 恢复后缺失 controller 时可按需重建", async () => {
+		const sessionStore = new InMemorySessionStore();
+		const aiClient = new StubAiClient(async () => ({
+			stopReason: "end_turn",
+			content: [{ type: "text", text: "hello again" }],
+		}));
+
+		const firstRuntime = new MemoryAgentRuntime({
+			aiClient,
+			sessionStore,
+			workspace: new InMemoryWorkspace("test"),
+		});
+
+		const session = await firstRuntime.startSession({
+			config: {
+				systemPrompt: "test",
+				tokenThreshold: 9999,
+				maxTurnsPerMessage: 2,
+			},
+		});
+
+		// 模拟新的 Worker/Runtime 实例，只复用持久化 session store。
+		const secondRuntime = new MemoryAgentRuntime({
+			aiClient,
+			sessionStore,
+			workspace: new InMemoryWorkspace("test"),
+		});
+
+		await secondRuntime.sendUserMessage(session.id, "hi again");
+		const snapshot = await secondRuntime.getSession(session.id);
+		expect(snapshot.messages.at(-1)?.role).toBe("assistant");
+		expect(snapshot.messages.at(-1)?.content[0]).toEqual({ type: "text", text: "hello again" });
 	});
 
 	test("tool_use 但没有工具块时失败", async () => {

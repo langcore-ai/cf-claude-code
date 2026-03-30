@@ -659,10 +659,17 @@ export class MemoryAgentRuntime implements AgentRuntime {
 	 */
 	private requireController(sessionId: string): SessionController {
 		const controller = this.controllers.get(sessionId);
-		if (!controller) {
-			throw new Error(`Session controller not found: ${sessionId}`);
+		if (controller) {
+			return controller;
 		}
-		return controller;
+
+		// Worker API 以无状态 HTTP 请求驱动 runtime 时，请求可能落到新的实例上。
+		// 这时 session 已经持久化在 store 里，但内存事件控制器不会随之恢复。
+		// 由于当前 HTTP 主链路并不依赖历史事件流重放，因此这里按需重建 controller，
+		// 优先保证同一 session 的后续消息和工具循环可以继续执行。
+		const nextController = createSessionController();
+		this.controllers.set(sessionId, nextController);
+		return nextController;
 	}
 
 	/**
