@@ -1,6 +1,7 @@
 import type { LanguageModel, ModelMessage, ToolSet } from "ai";
-import { generateText } from "ai";
+import { generateText, tool } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
+import { jsonSchema } from "@ai-sdk/provider-utils";
 
 import type {
 	AIClient,
@@ -48,18 +49,34 @@ export function toAiMessages(messages: Message[]): ModelMessage[] {
 
 /**
  * 将 runtime 工具 schema 转成 AI SDK tool set。
- * Phase 1 只需要工具描述和空执行器，因为实际执行由 runtime 完成。
+ * runtime 内部仍维护自己的工具协议；这里只在 adapter 边界转换为 AI SDK 官方 `tool({...})` 形态，
+ * 避免把 provider / SDK 细节反向渗透到 runtime core。
  * @param tools runtime 工具列表
  * @returns AI SDK ToolSet
  */
 export function toAiTools(tools: ToolSchema[]): ToolSet {
 	const mapped: ToolSet = {};
-	for (const tool of tools) {
-		mapped[tool.name] = {
-			description: tool.description,
-			inputSchema: tool.inputSchema as never,
+	for (const toolSchema of tools) {
+		if (toolSchema.sdkTool) {
+			mapped[toolSchema.name] = toolSchema.sdkTool as ToolSet[string];
+			continue;
+		}
+
+		const fallbackInputSchema =
+			typeof toolSchema.inputSchema === "object" &&
+			toolSchema.inputSchema !== null &&
+			"safeParse" in toolSchema.inputSchema
+				? (toolSchema.inputSchema as never)
+				: (jsonSchema(toolSchema.inputSchema as Record<string, unknown>) as never);
+
+		mapped[toolSchema.name] = tool({
+			description: toolSchema.description,
+			// AI SDK 6 不再接受裸 JSON 对象作为 schema；这里包成 provider-utils 的 Schema，
+			// 以便 tools 在生成与解析阶段都能被正确识别和校验。
+			inputSchema: fallbackInputSchema,
+			// 实际工具执行仍由 runtime loop 负责；这里提供最小 execute 以符合 AI SDK 官方工具形态。
 			execute: async () => "",
-		};
+		}) as ToolSet[string];
 	}
 	return mapped;
 }
@@ -73,7 +90,7 @@ export function toModelTurnResult(output: {
 	toolCalls?: Array<{
 		toolCallId?: string;
 		toolName: string;
-		args?: Record<string, unknown>;
+		input?: unknown;
 	}>;
 	text?: string;
 	usage?: {
@@ -88,7 +105,10 @@ export function toModelTurnResult(output: {
 			type: "tool_use",
 			id: toolCall.toolCallId ?? `${toolCall.toolName}-${index}`,
 			name: toolCall.toolName,
-			input: toolCall.args ?? {},
+			input:
+				typeof toolCall.input === "object" && toolCall.input !== null
+					? (toolCall.input as Record<string, unknown>)
+					: {},
 		}));
 
 		return {

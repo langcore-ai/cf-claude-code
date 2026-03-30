@@ -1,7 +1,6 @@
 import { nanoid } from "nanoid";
-
 import { ToolDispatcher } from "./tool-dispatcher";
-import type { RuntimeTool, DefaultToolContext } from "../tools";
+import type { DefaultToolContext, RuntimeTool } from "../tools";
 import type {
 	AIClient,
 	AgentEvent,
@@ -77,7 +76,7 @@ export class SubagentRunner {
 	 */
 	constructor(private readonly deps: SubagentRunnerDependencies) {
 		this.dispatcher = new ToolDispatcher(
-			deps.tools.filter((tool) => SUBAGENT_TOOL_NAMES.has(tool.schema.name)),
+			deps.tools.filter((tool) => SUBAGENT_TOOL_NAMES.has(tool.name)),
 		);
 	}
 

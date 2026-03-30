@@ -1,23 +1,26 @@
 import { describe, expect, test } from "bun:test";
+import { tool } from "ai";
+import { jsonSchema } from "@ai-sdk/provider-utils";
 
 import { ToolDispatcher } from "../core";
-import type { RuntimeTool } from "../tools";
+import { createRuntimeTool } from "../tools";
 
 describe("ToolDispatcher", () => {
 	test("执行已注册工具", async () => {
-		const tools: RuntimeTool[] = [
-			{
-				schema: {
-					name: "echo",
+		const tools = [
+			createRuntimeTool(
+				"echo",
+				tool({
 					description: "echo",
-					inputSchema: { type: "object" },
-				},
-				execute: async (call) => ({
+					inputSchema: jsonSchema({ type: "object" }) as never,
+					execute: async () => "",
+				}),
+				async (call) => ({
 					toolUseId: call.id,
 					name: call.name,
 					content: String(call.input.value ?? ""),
 				}),
-			},
+			),
 		];
 		const dispatcher = new ToolDispatcher(tools);
 

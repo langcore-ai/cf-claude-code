@@ -46,6 +46,8 @@
   - 异步 subagent 当前只提供 queued job 骨架和状态查询接口，不运行后台 loop
   - `state_exec` 可真实执行结构化 `state.*` JavaScript，并共享当前 workspace
   - 主会话和 subagent 会在 `state_exec` 可用时按需注入 `STATE_SYSTEM_PROMPT` + `STATE_TYPES`
+  - 默认工具当前通过 `createRuntimeTool(...)` 以 AI SDK 官方 `tool({...})` 为基底创建；runtime 直接在工具对象上维护名称与执行逻辑，adapter 侧优先直接复用这些官方 Tool 对象
+  - 默认 system prompt 会强约束文件操作必须走真实工具，不能只返回伪代码或口头声称已完成
   - skill 默认可来自 workspace 和 memory，冲突时 workspace 覆盖 memory
   - runtime 已支持 `createMemoryRuntime(...)` 和 `createDurableRuntime(...)`
   - durable runtime 会共享同一个 `@cloudflare/shell Workspace({ sql })`
@@ -76,6 +78,7 @@
 
 - 不要把 `git` 作为本目录的核心叙事，工作区本身才是主目标。
 - 当前 runtime 已通过 `state_exec` 暴露结构化 `state.*`，但还没有把 shell 的全部执行面扩展到 `git.*`、更完整的 sandbox/provider 编排。
+- 当前 prompt 与工具描述会明确禁止把 `/` 当成文件路径；在根目录创建文件时，必须使用 `/<filename>` 这种具体路径。
 - 当前 durable state 只覆盖 session / transcript / subagent jobs；task 和 todo 仍内嵌在 session snapshot 内。
 - 当前 subagent 与父会话共享同一 workspace，不做隔离副本，也不做 lane/worktree。
 - 异步 subagent 还只有 queued job 骨架，没有真正后台执行能力。

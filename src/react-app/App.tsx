@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { FileUpIcon, LoaderCircleIcon, PanelLeftIcon, RefreshCwIcon, SparklesIcon, XIcon } from "lucide-react";
 import { useLocalStorage } from "react-use";
 
+import { ChatMessageCard } from "@/components/chat-message-card";
+import { RuntimeStatePanel, type RuntimePanelTab } from "@/components/runtime-state-panel";
 import { Button } from "@/components/ui/button";
 import {
 	Dialog,
@@ -16,6 +18,7 @@ import {
 	ResizablePanel,
 	ResizablePanelGroup,
 } from "@/components/ui/resizable";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import {
 	type WorkspaceTreeNode,
 	WorkspaceFileTree,
@@ -48,6 +51,12 @@ const CHAT_PANEL_MIN_SIZE = "420px";
 const SESSION_LIST_PANEL_MIN_SIZE = "180px";
 /** 文件树面板最小高度 */
 const FILE_TREE_PANEL_MIN_SIZE = "240px";
+/** 左侧 sidebar 最小宽度 */
+const SIDEBAR_PANEL_MIN_SIZE = "280px";
+/** 左侧 sidebar 最大宽度 */
+const SIDEBAR_PANEL_MAX_SIZE = "420px";
+/** 左侧 sidebar 默认宽度 */
+const SIDEBAR_PANEL_DEFAULT_SIZE = "320px";
 
 /** session 演示数据 */
 interface SessionListItem {
@@ -88,7 +97,10 @@ function App() {
 	const [isUploadDialogOpen, setIsUploadDialogOpen] = useState(false);
 	const [isUploadingFiles, setIsUploadingFiles] = useState(false);
 	const [runtimeError, setRuntimeError] = useState<string | null>(null);
+	const [activeRuntimeTab, setActiveRuntimeTab] = useState<RuntimePanelTab>("messages");
+	const [pendingUserMessage, setPendingUserMessage] = useState<string | null>(null);
 	const hasBootstrappedSessionRef = useRef(false);
+	const messagesEndRef = useRef<HTMLDivElement | null>(null);
 	const [previewLayout, setPreviewLayout] = useLocalStorage<{
 		preview: number;
 		chat: number;
@@ -138,6 +150,20 @@ function App() {
 	}, [clearUploadErrors, clearUploadFiles, isUploadDialogOpen]);
 
 	/**
+	 * 当消息列表发生变化时，自动滚动到底部，方便观察 tool_result 和 compact 后的新状态。
+	 */
+	useEffect(() => {
+		if (activeRuntimeTab !== "messages") {
+			return;
+		}
+
+		messagesEndRef.current?.scrollIntoView({
+			behavior: "smooth",
+			block: "end",
+		});
+	}, [activeRuntimeTab, currentSession?.compactSummary, currentSession?.messages, pendingUserMessage]);
+
+	/**
 	 * 首次进入 playground 时自动创建一个 session，避免页面空跑。
 	 */
 	useEffect(() => {
@@ -157,7 +183,9 @@ function App() {
 		setSessionItems((previous) => {
 			const nextItem = buildSessionListItem(session);
 			const filtered = previous.filter((item) => item.id !== session.id);
-			return [nextItem, ...filtered].slice(0, MAX_SESSION_ITEMS);
+			return [...filtered, nextItem]
+				.sort((left, right) => left.id.localeCompare(right.id))
+				.slice(0, MAX_SESSION_ITEMS);
 		});
 	}
 
@@ -174,6 +202,7 @@ function App() {
 			upsertSessionItem(response.session);
 			setSelectedFilePath(null);
 			setSelectedFileContent("");
+			setActiveRuntimeTab("messages");
 			await refreshWorkspaceTree(response.sessionId);
 		} catch (error) {
 			setRuntimeError(error instanceof Error ? error.message : "Failed to create session");
@@ -198,6 +227,7 @@ function App() {
 				setSelectedSessionId(latestSession.id);
 				setSelectedFilePath(null);
 				setSelectedFileContent("");
+				setActiveRuntimeTab("messages");
 				await refreshWorkspaceTree(latestSession.id);
 				return;
 			}
@@ -208,6 +238,7 @@ function App() {
 			upsertSessionItem(created.session);
 			setSelectedFilePath(null);
 			setSelectedFileContent("");
+			setActiveRuntimeTab("messages");
 			await refreshWorkspaceTree(created.sessionId);
 		} catch (error) {
 			setRuntimeError(error instanceof Error ? error.message : "Failed to bootstrap sessions");
@@ -230,6 +261,7 @@ function App() {
 			upsertSessionItem(response.session);
 			setSelectedFilePath(null);
 			setSelectedFileContent("");
+			setActiveRuntimeTab("messages");
 			await refreshWorkspaceTree(response.sessionId);
 		} catch (error) {
 			setRuntimeError(error instanceof Error ? error.message : "Failed to fetch session");
@@ -249,7 +281,10 @@ function App() {
 		try {
 			setRuntimeError(null);
 			setIsSendingMessage(true);
-			const response = await sendMessage(selectedSessionId, messageDraft.trim());
+			const nextMessage = messageDraft.trim();
+			setPendingUserMessage(nextMessage);
+			setActiveRuntimeTab("messages");
+			const response = await sendMessage(selectedSessionId, nextMessage);
 			setCurrentSession(response.session);
 			upsertSessionItem(response.session);
 			setMessageDraft("");
@@ -257,6 +292,7 @@ function App() {
 			setRuntimeError(error instanceof Error ? error.message : "Failed to send message");
 		} finally {
 			setIsSendingMessage(false);
+			setPendingUserMessage(null);
 		}
 	}
 
@@ -358,8 +394,13 @@ function App() {
 	return (
 		<main className="min-h-screen bg-[radial-gradient(circle_at_top,rgba(59,130,246,0.08),transparent_28%),linear-gradient(180deg,#f8fafc_0%,#e2e8f0_100%)]">
 			<div className="h-screen w-screen overflow-hidden border border-border/60 bg-background/85 shadow-[0_30px_80px_rgba(15,23,42,0.14)] backdrop-blur">
-				<div className="flex h-full min-h-0">
-					<aside className="flex h-full w-[320px] shrink-0 flex-col border-r border-border/70 bg-sidebar px-4 py-4">
+				<ResizablePanelGroup className="h-full min-h-0" orientation="horizontal">
+					<ResizablePanel
+						defaultSize={SIDEBAR_PANEL_DEFAULT_SIZE}
+						maxSize={SIDEBAR_PANEL_MAX_SIZE}
+						minSize={SIDEBAR_PANEL_MIN_SIZE}
+					>
+						<aside className="flex h-full min-h-0 flex-col border-r border-border/70 bg-sidebar px-4 py-4">
 						<div className="mb-4 flex items-center gap-3 border-b border-sidebar-border pb-4">
 							<div className="flex size-10 items-center justify-center rounded-2xl bg-sidebar-primary text-sidebar-primary-foreground">
 								<PanelLeftIcon className="size-4" />
@@ -489,9 +530,13 @@ function App() {
 								</section>
 							</ResizablePanel>
 						</ResizablePanelGroup>
-					</aside>
+						</aside>
+					</ResizablePanel>
 
-					<section className="min-w-0 flex-1 bg-background/70">
+					<ResizableHandle />
+
+					<ResizablePanel>
+						<section className="flex h-full min-w-0 flex-col bg-background/70">
 						{isPreviewMode ? (
 							<ResizablePanelGroup
 								className="h-full"
@@ -526,10 +571,12 @@ function App() {
 												<XIcon data-icon="inline-start" />
 											</Button>
 										</div>
-										<div className="min-h-0 flex-1 overflow-auto p-5">
-											<pre className="min-h-full rounded-2xl border border-border bg-muted/30 p-4 text-sm leading-6 text-foreground">
-												<code>{isLoadingSelectedFile ? "// loading file..." : selectedFileContent}</code>
-											</pre>
+										<div className="min-h-0 flex-1 p-5">
+											<ScrollArea className="h-full w-full rounded-2xl border border-border bg-muted/30" type="always">
+												<pre className="min-h-full whitespace-pre-wrap break-words p-4 text-sm leading-6 text-foreground">
+													<code>{isLoadingSelectedFile ? "// loading file..." : selectedFileContent}</code>
+												</pre>
+											</ScrollArea>
 										</div>
 									</section>
 								</ResizablePanel>
@@ -541,31 +588,40 @@ function App() {
 									minSize={CHAT_PANEL_MIN_SIZE}
 								>
 									{renderChatPanel({
+										activeRuntimeTab,
 										currentSession,
 										isRefreshingSession,
 										isSendingMessage,
 										messageDraft,
+										messagesEndRef,
 										onChangeMessageDraft: setMessageDraft,
+										onChangeRuntimeTab: setActiveRuntimeTab,
 										onSendMessage: handleSendMessage,
 										onShutdownSession: handleShutdownSession,
+										pendingUserMessage,
 										runtimeError,
 									})}
 								</ResizablePanel>
 							</ResizablePanelGroup>
 						) : (
 							renderChatPanel({
+								activeRuntimeTab,
 								currentSession,
 								isRefreshingSession,
 								isSendingMessage,
 								messageDraft,
+								messagesEndRef,
 								onChangeMessageDraft: setMessageDraft,
+								onChangeRuntimeTab: setActiveRuntimeTab,
 								onSendMessage: handleSendMessage,
 								onShutdownSession: handleShutdownSession,
+								pendingUserMessage,
 								runtimeError,
 							})
 						)}
-					</section>
-				</div>
+						</section>
+					</ResizablePanel>
+				</ResizablePanelGroup>
 			</div>
 
 			<Dialog onOpenChange={setIsUploadDialogOpen} open={isUploadDialogOpen}>
@@ -758,13 +814,17 @@ function buildSessionListItem(session: RuntimeSessionDto): SessionListItem {
 
 /** Chat 面板参数 */
 interface ChatPanelProps {
+	activeRuntimeTab: RuntimePanelTab;
 	currentSession: RuntimeSessionDto | null;
 	isRefreshingSession: boolean;
 	isSendingMessage: boolean;
 	messageDraft: string;
+	messagesEndRef: RefObject<HTMLDivElement | null>;
 	onChangeMessageDraft: (value: string) => void;
+	onChangeRuntimeTab: (tab: RuntimePanelTab) => void;
 	onSendMessage: () => void;
 	onShutdownSession: () => void;
+	pendingUserMessage: string | null;
 	runtimeError: string | null;
 }
 
@@ -773,13 +833,17 @@ interface ChatPanelProps {
  * 当前已接入 session 主链路 API。
  */
 function renderChatPanel({
+	activeRuntimeTab,
 	currentSession,
 	isRefreshingSession,
 	isSendingMessage,
 	messageDraft,
+	messagesEndRef,
 	onChangeMessageDraft,
+	onChangeRuntimeTab,
 	onSendMessage,
 	onShutdownSession,
+	pendingUserMessage,
 	runtimeError,
 }: ChatPanelProps) {
 	return (
@@ -807,56 +871,56 @@ function renderChatPanel({
 				</div>
 			</div>
 
-			<div className="min-h-0 flex-1 overflow-auto p-5">
-				<div className="flex h-full flex-col gap-4">
-					{runtimeError ? (
-						<div className="rounded-2xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-							{runtimeError}
-						</div>
-					) : null}
-
-					{isRefreshingSession ? (
-						<div className="rounded-2xl border border-border bg-card px-4 py-3 text-sm text-muted-foreground shadow-sm">
-							Loading session...
-						</div>
-					) : null}
-
-					{currentSession?.messages.length ? (
-						currentSession.messages.map((message) => {
-							const isAssistant = message.role === "assistant";
-							const textContent = message.content
-								.map((block) => {
-									if (block.type === "text") {
-										return block.text;
-									}
-									if (block.type === "tool_result") {
-										return `[tool:${block.toolUseId}] ${block.content}`;
-									}
-									if (block.type === "tool_use") {
-										return `[tool_use:${block.name}]`;
-									}
-									return "";
-								})
-								.filter(Boolean)
-								.join("\n");
-
-							return (
-								<div
-									className={isAssistant
-										? "max-w-[75%] rounded-2xl rounded-tl-sm border border-border bg-card px-4 py-3 text-sm text-card-foreground shadow-sm"
-										: "ml-auto max-w-[78%] rounded-2xl rounded-tr-sm bg-primary px-4 py-3 text-sm text-primary-foreground shadow-sm"}
-									key={message.id}
-								>
-									{textContent || "(empty message)"}
+			<div className="flex min-h-0 flex-1 flex-col p-5">
+				<RuntimeStatePanel
+					activeTab={activeRuntimeTab}
+					onChangeTab={onChangeRuntimeTab}
+					runtimeError={runtimeError}
+					session={currentSession}
+				/>
+				{activeRuntimeTab === "messages" ? (
+					<ScrollArea className="mt-4 min-h-0 flex-1 rounded-2xl border border-border bg-muted/20" type="always">
+						<div className="flex min-h-full flex-col gap-4 p-4">
+							{runtimeError ? (
+								<div className="rounded-2xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+									{runtimeError}
 								</div>
-							);
-						})
-					) : (
-						<div className="rounded-2xl border border-dashed border-border px-4 py-3 text-sm text-muted-foreground">
-							当前 session 还没有消息。发送一条消息后，这里会展示真实 transcript。
+							) : null}
+
+							{isRefreshingSession ? (
+								<div className="rounded-2xl border border-border bg-card px-4 py-3 text-sm text-muted-foreground shadow-sm">
+									Loading session...
+								</div>
+							) : null}
+
+							{currentSession?.messages.length ? (
+								currentSession.messages.map((message) => (
+									<ChatMessageCard key={message.id} message={message} />
+								))
+							) : (
+								<div className="rounded-2xl border border-dashed border-border px-4 py-3 text-sm text-muted-foreground">
+									当前 session 还没有消息。发送一条消息后，这里会展示真实 transcript。
+								</div>
+							)}
+
+							{pendingUserMessage ? (
+								<div className="ml-auto w-full max-w-[80%]">
+									<div className="rounded-2xl rounded-tr-sm border border-primary/30 bg-primary/10 px-4 py-3 text-sm text-foreground shadow-sm">
+										<div className="mb-3 flex items-center justify-between gap-3 text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
+											<span>User</span>
+											<span>sending...</span>
+										</div>
+										<div className="whitespace-pre-wrap break-words leading-6">
+											{pendingUserMessage}
+										</div>
+									</div>
+								</div>
+							) : null}
+
+							<div ref={messagesEndRef} />
 						</div>
-					)}
-				</div>
+					</ScrollArea>
+				) : null}
 			</div>
 
 			<div className="border-t border-border p-4">

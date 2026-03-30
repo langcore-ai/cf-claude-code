@@ -13,7 +13,7 @@ export class ToolDispatcher {
 	 */
 	constructor(tools: RuntimeTool[]) {
 		for (const tool of tools) {
-			this.tools.set(tool.schema.name, tool);
+			this.tools.set(tool.name, tool);
 		}
 	}
 
@@ -22,7 +22,12 @@ export class ToolDispatcher {
 	 * @returns 工具 schema 列表
 	 */
 	listSchemas(): ToolSchema[] {
-		return [...this.tools.values()].map((tool) => tool.schema);
+		return [...this.tools.values()].map((tool) => ({
+			name: tool.name,
+			description: tool.description ?? "",
+			inputSchema: tool.inputSchema as Record<string, unknown>,
+			sdkTool: tool,
+		}));
 	}
 
 	/**
@@ -37,6 +42,6 @@ export class ToolDispatcher {
 			throw new Error(`Unknown tool: ${call.name}`);
 		}
 
-		return tool.execute(call, context);
+		return tool.runtimeExecute(call, context);
 	}
 }

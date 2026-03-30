@@ -11,7 +11,7 @@ import {
 import type { SessionState } from "../runtime";
 
 /** Worker 侧 runtime 默认模型名 */
-const DEFAULT_MODEL = "gpt-4.1-mini";
+const DEFAULT_MODEL = "gpt-5-mini";
 
 /** Worker 运行时 bindings */
 export interface WorkerBindings {
@@ -221,13 +221,27 @@ function parsePathQuery(path: string | undefined): string {
 }
 
 /**
+ * 校验“文件写入目标路径”。
+ * 根目录 `/` 只能作为工作区目录使用，不能直接作为文件写入目标。
+ * @param path 原始路径
+ * @returns 规范化前的路径
+ */
+function parseWorkspaceFileTargetPath(path: string | undefined): string {
+	const nextPath = parsePathQuery(path);
+	if (nextPath === "/") {
+		throw new Error("path must point to a file, not the workspace root");
+	}
+	return nextPath;
+}
+
+/**
  * 读取并校验写文件请求体。
  * @param body 原始 body
  * @returns 规范化后的文件写入参数
  */
 function parseWriteWorkspaceFileBody(body: unknown): WriteWorkspaceFileBody {
 	const payload = typeof body === "object" && body !== null ? body as Record<string, unknown> : null;
-	if (!payload || typeof payload.path !== "string" || payload.path.trim() === "") {
+	if (!payload || typeof payload.path !== "string") {
 		throw new Error("path must be a non-empty string");
 	}
 	if (typeof payload.content !== "string") {
@@ -235,7 +249,7 @@ function parseWriteWorkspaceFileBody(body: unknown): WriteWorkspaceFileBody {
 	}
 
 	return {
-		path: payload.path,
+		path: parseWorkspaceFileTargetPath(payload.path),
 		content: payload.content,
 	};
 }
@@ -278,10 +292,9 @@ async function parseWorkspaceUploadFormData(formData: FormData): Promise<Uploade
 	}
 
 	// 未显式指定路径时，默认把文件放到工作区根目录
-	const path = rawPath && rawPath.trim() !== "" ? rawPath : `/${file.name}`;
-	if (path.trim() === "") {
-		throw new Error("path must be a non-empty string");
-	}
+	const path = parseWorkspaceFileTargetPath(
+		rawPath && rawPath.trim() !== "" ? rawPath : `/${file.name}`,
+	);
 
 	return {
 		path,
@@ -546,7 +559,9 @@ export function createApp<TBindings extends object = WorkerBindings>(
 		} catch (error) {
 			if (
 				error instanceof Error &&
-				(error.message === "path must be a non-empty string" || error.message === "content must be a string")
+				(error.message === "path must be a non-empty string" ||
+					error.message === "path must point to a file, not the workspace root" ||
+					error.message === "content must be a string")
 			) {
 				return jsonError(c, 400, "INVALID_REQUEST", error.message);
 			}
@@ -606,7 +621,8 @@ export function createApp<TBindings extends object = WorkerBindings>(
 				error instanceof Error &&
 				(error.message === "file is required" ||
 					error.message === "path must be a string" ||
-					error.message === "path must be a non-empty string")
+					error.message === "path must be a non-empty string" ||
+					error.message === "path must point to a file, not the workspace root")
 			) {
 				return jsonError(c, 400, "INVALID_REQUEST", error.message);
 			}

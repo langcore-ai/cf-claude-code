@@ -530,6 +530,23 @@ describe("worker api", () => {
 		expect(await writeResponse.json()).toEqual({
 			error: { message: "content must be a string", code: "INVALID_REQUEST" },
 		});
+
+		const writeRootResponse = await app.request(`http://local/api/sessions/${created.sessionId}/workspace/file`, {
+			method: "PUT",
+			body: JSON.stringify({
+				path: "/",
+				content: "invalid root write",
+			}),
+			headers: {
+				"content-type": "application/json",
+			},
+		}, {
+			TEST_ONLY: true,
+		});
+		expect(writeRootResponse.status).toBe(400);
+		expect(await writeRootResponse.json()).toEqual({
+			error: { message: "path must point to a file, not the workspace root", code: "INVALID_REQUEST" },
+		});
 	});
 
 	test("workspace API 对不存在 session 返回 404", async () => {
@@ -618,6 +635,38 @@ describe("worker api", () => {
 		expect(response.status).toBe(400);
 		expect(await response.json()).toEqual({
 			error: { message: "file is required", code: "INVALID_REQUEST" },
+		});
+	});
+
+	test("workspace upload 目标为根目录时返回 400", async () => {
+		const app = createApp(createTestRuntimeFactory());
+		const createResponse = await app.request("http://local/api/sessions", {
+			method: "POST",
+			body: JSON.stringify({}),
+			headers: {
+				"content-type": "application/json",
+			},
+		}, {
+			TEST_ONLY: true,
+		});
+		const created = await createResponse.json() as { sessionId: string };
+
+		const formData = new FormData();
+		formData.set("file", new File(["uploaded content"], "upload.txt", { type: "text/plain" }));
+		formData.set("path", "/");
+
+		const response = await app.request(
+			`http://local/api/sessions/${created.sessionId}/workspace/upload`,
+			{
+				method: "POST",
+				body: formData,
+			},
+			{ TEST_ONLY: true },
+		);
+
+		expect(response.status).toBe(400);
+		expect(await response.json()).toEqual({
+			error: { message: "path must point to a file, not the workspace root", code: "INVALID_REQUEST" },
 		});
 	});
 

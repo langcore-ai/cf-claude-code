@@ -1,8 +1,11 @@
 import { nanoid } from "nanoid";
+import { tool } from "ai";
+import type { Tool } from "@ai-sdk/provider-utils";
+import { z } from "zod";
 
 import { applyTodoWrite, createTask, getTask, renderTodos, updateTask } from "../domain";
 import type { SkillProvider } from "../skills";
-import type { ToolCall, ToolResult, ToolSchema, SessionState } from "../types";
+import type { ToolCall, ToolResult, SessionState } from "../types";
 import type { Workspace } from "../workspace";
 
 /** 默认工具上下文 */
@@ -44,15 +47,29 @@ export interface DefaultToolContext {
 }
 
 /** Runtime 工具定义 */
-export interface RuntimeTool {
-	/** schema 定义 */
-	schema: ToolSchema;
-	/**
-	 * 执行工具
-	 * @param call 工具调用
-	 * @param context 上下文
-	 */
-	execute(call: ToolCall, context: DefaultToolContext): Promise<ToolResult>;
+export type RuntimeTool = Tool & {
+	/** 工具名称 */
+	name: string;
+	/** runtime 内部执行逻辑 */
+	runtimeExecute(call: ToolCall, context: DefaultToolContext): Promise<ToolResult>;
+};
+
+/**
+ * 为官方 Tool 记录 runtime 所需的名称和执行逻辑。
+ * @param name 工具名称
+ * @param sdkTool AI SDK 官方工具对象
+ * @param runtimeExecute runtime 内部执行逻辑
+ * @returns 原始 Tool 对象
+ */
+export function createRuntimeTool(
+	name: string,
+	sdkTool: Tool,
+	runtimeExecute: (call: ToolCall, context: DefaultToolContext) => Promise<ToolResult>,
+): RuntimeTool {
+	return Object.assign(sdkTool, {
+		name,
+		runtimeExecute,
+	});
 }
 
 /**
@@ -61,20 +78,18 @@ export interface RuntimeTool {
  */
 export function createDefaultTools(): RuntimeTool[] {
 	return [
-		{
-			schema: {
-				name: "state_exec",
-				description: "执行一段可访问 state.* 的 JavaScript，用于复杂文件和工作区操作",
-				inputSchema: {
-					type: "object",
-					properties: {
-						code: { type: "string" },
-						description: { type: "string" },
-					},
-					required: ["code"],
-				},
-			},
-			execute: async (call, context) => {
+		createRuntimeTool(
+			"state_exec",
+			tool({
+				description:
+					"执行一段可访问 state.* 的完整 JavaScript，用于复杂文件和工作区操作。必须传入 code，且 code 必须是完整的 async () => { ... } 函数；不要空调用，也不要只返回待执行代码。",
+				inputSchema: z.object({
+					code: z.string(),
+					description: z.string().optional(),
+				}),
+
+			}),
+			async (call, context) => {
 				if (!context.executeState) {
 					throw new Error("state_exec is not available");
 				}
@@ -100,21 +115,18 @@ export function createDefaultTools(): RuntimeTool[] {
 					},
 				};
 			},
-		},
-		{
-			schema: {
-				name: "subagent_run",
+		),
+		createRuntimeTool(
+			"subagent_run",
+			tool({
 				description: "同步执行一个 fresh-context subagent，并返回摘要",
-				inputSchema: {
-					type: "object",
-					properties: {
-						prompt: { type: "string" },
-						description: { type: "string" },
-					},
-					required: ["prompt"],
-				},
-			},
-			execute: async (call, context) => {
+				inputSchema: z.object({
+					prompt: z.string(),
+					description: z.string().optional(),
+				}),
+
+			}),
+			async (call, context) => {
 				if (!context.runSubagent) {
 					throw new Error("Subagent runtime is not available");
 				}
@@ -132,21 +144,18 @@ export function createDefaultTools(): RuntimeTool[] {
 					},
 				};
 			},
-		},
-		{
-			schema: {
-				name: "subagent_start",
+		),
+		createRuntimeTool(
+			"subagent_start",
+			tool({
 				description: "创建异步 subagent job 骨架",
-				inputSchema: {
-					type: "object",
-					properties: {
-						prompt: { type: "string" },
-						description: { type: "string" },
-					},
-					required: ["prompt"],
-				},
-			},
-			execute: async (call, context) => {
+				inputSchema: z.object({
+					prompt: z.string(),
+					description: z.string().optional(),
+				}),
+
+			}),
+			async (call, context) => {
 				if (!context.startSubagent) {
 					throw new Error("Subagent runtime is not available");
 				}
@@ -160,20 +169,17 @@ export function createDefaultTools(): RuntimeTool[] {
 					meta: job,
 				};
 			},
-		},
-		{
-			schema: {
-				name: "subagent_status",
+		),
+		createRuntimeTool(
+			"subagent_status",
+			tool({
 				description: "读取单个 subagent job 状态",
-				inputSchema: {
-					type: "object",
-					properties: {
-						jobId: { type: "string" },
-					},
-					required: ["jobId"],
-				},
-			},
-			execute: async (call, context) => {
+				inputSchema: z.object({
+					jobId: z.string(),
+				}),
+
+			}),
+			async (call, context) => {
 				if (!context.getSubagentJob) {
 					throw new Error("Subagent runtime is not available");
 				}
@@ -184,17 +190,15 @@ export function createDefaultTools(): RuntimeTool[] {
 					content: job ? JSON.stringify(job, null, 2) : "Subagent job not found",
 				};
 			},
-		},
-		{
-			schema: {
-				name: "subagent_list",
+		),
+		createRuntimeTool(
+			"subagent_list",
+			tool({
 				description: "列出当前会话下的 subagent jobs",
-				inputSchema: {
-					type: "object",
-					properties: {},
-				},
-			},
-			execute: async (call, context) => {
+				inputSchema: z.object({}),
+
+			}),
+			async (call, context) => {
 				if (!context.listSubagentJobs) {
 					throw new Error("Subagent runtime is not available");
 				}
@@ -205,20 +209,17 @@ export function createDefaultTools(): RuntimeTool[] {
 					content: jobs.length > 0 ? JSON.stringify(jobs, null, 2) : "No subagent jobs.",
 				};
 			},
-		},
-		{
-			schema: {
-				name: "read_file",
+		),
+		createRuntimeTool(
+			"read_file",
+			tool({
 				description: "读取工作区中的文本文件",
-				inputSchema: {
-					type: "object",
-					properties: {
-						path: { type: "string" },
-					},
-					required: ["path"],
-				},
-			},
-			execute: async (call, context) => {
+				inputSchema: z.object({
+					path: z.string(),
+				}),
+
+			}),
+			async (call, context) => {
 				const path = String(call.input.path ?? "");
 				const file = await context.workspace.files.readFile(path);
 				return {
@@ -227,21 +228,21 @@ export function createDefaultTools(): RuntimeTool[] {
 					content: file.content,
 				};
 			},
-		},
-		{
-			schema: {
-				name: "write_file",
-				description: "向工作区写入文本文件",
-				inputSchema: {
-					type: "object",
-					properties: {
-						path: { type: "string" },
-						content: { type: "string" },
-					},
-					required: ["path", "content"],
-				},
-			},
-			execute: async (call, context) => {
+		),
+		createRuntimeTool(
+			"write_file",
+			tool({
+				description:
+					"向工作区写入文本文件。path 必须是具体文件路径，例如 /README.md；不要把 / 当成文件路径。如果用户要求在根目录创建文件，应写成 /<文件名>。",
+				inputSchema: z.object({
+					path: z
+						.string()
+						.describe("文件路径，必须是具体文件路径，例如 /README.md；不要把 / 当成文件路径。如果用户要求在根目录创建文件，应写成 /<文件名>。"),
+					content: z.string().describe("文件内容"),
+				}),
+
+			}),
+			async (call, context) => {
 				const path = String(call.input.path ?? "");
 				const content = String(call.input.content ?? "");
 				await context.workspace.files.writeFile(path, content);
@@ -251,19 +252,17 @@ export function createDefaultTools(): RuntimeTool[] {
 					content: `Wrote file: ${path}`,
 				};
 			},
-		},
-		{
-			schema: {
-				name: "list_files",
+		),
+		createRuntimeTool(
+			"list_files",
+			tool({
 				description: "列出工作区目录的直接子节点",
-				inputSchema: {
-					type: "object",
-					properties: {
-						path: { type: "string" },
-					},
-				},
-			},
-			execute: async (call, context) => {
+				inputSchema: z.object({
+					path: z.string().optional(),
+				}),
+
+			}),
+			async (call, context) => {
 				const path = call.input.path ? String(call.input.path) : "/";
 				const entries = await context.workspace.files.list(path);
 				return {
@@ -272,20 +271,25 @@ export function createDefaultTools(): RuntimeTool[] {
 					content: entries.map((entry) => `${entry.type}: ${entry.path}`).join("\n") || "No files.",
 				};
 			},
-		},
-		{
-			schema: {
-				name: "TodoWrite",
-				description: "整体更新当前 todo 列表",
-				inputSchema: {
-					type: "object",
-					properties: {
-						items: { type: "array" },
-					},
-					required: ["items"],
-				},
-			},
-			execute: async (call, context) => {
+		),
+		createRuntimeTool(
+			"TodoWrite",
+			tool({
+				description:
+					"整体更新当前 todo 列表。每个 todo 必须是一个最小可执行步骤，一项只做一件事；不要把多个文件、端点、依赖或页面改动塞进同一项。复杂需求必须拆成多条 items。",
+				inputSchema: z.object({
+					items: z.array(
+						z.object({
+							id: z.string().optional(),
+							content: z.string(),
+							status: z.enum(["pending", "in_progress", "completed"]),
+							activeForm: z.string().optional(),
+						}),
+					),
+				}),
+
+			}),
+			async (call, context) => {
 				const items = Array.isArray(call.input.items) ? call.input.items : [];
 				const todos = applyTodoWrite({
 					items: items.map((item) => ({
@@ -310,20 +314,17 @@ export function createDefaultTools(): RuntimeTool[] {
 					content: renderTodos(todos),
 				};
 			},
-		},
-		{
-			schema: {
-				name: "load_skill",
+		),
+		createRuntimeTool(
+			"load_skill",
+			tool({
 				description: "读取某个 skill 的入口文件",
-				inputSchema: {
-					type: "object",
-					properties: {
-						name: { type: "string" },
-					},
-					required: ["name"],
-				},
-			},
-			execute: async (call, context) => {
+				inputSchema: z.object({
+					name: z.string(),
+				}),
+
+			}),
+			async (call, context) => {
 				const name = String(call.input.name ?? "");
 				const skill = await context.skills.open(name);
 				if (!skill) {
@@ -336,20 +337,17 @@ export function createDefaultTools(): RuntimeTool[] {
 					content: await skill.readEntry(),
 				};
 			},
-		},
-		{
-			schema: {
-				name: "list_skill_files",
+		),
+		createRuntimeTool(
+			"list_skill_files",
+			tool({
 				description: "列出 skill 根目录下的文件",
-				inputSchema: {
-					type: "object",
-					properties: {
-						name: { type: "string" },
-					},
-					required: ["name"],
-				},
-			},
-			execute: async (call, context) => {
+				inputSchema: z.object({
+					name: z.string(),
+				}),
+
+			}),
+			async (call, context) => {
 				const name = String(call.input.name ?? "");
 				const skill = await context.skills.open(name);
 				if (!skill) {
@@ -363,21 +361,18 @@ export function createDefaultTools(): RuntimeTool[] {
 					content: files.map((file) => `${file.type}: ${file.path}`).join("\n") || "No files.",
 				};
 			},
-		},
-		{
-			schema: {
-				name: "read_skill_file",
+		),
+		createRuntimeTool(
+			"read_skill_file",
+			tool({
 				description: "读取 skill 内的任意文本文件",
-				inputSchema: {
-					type: "object",
-					properties: {
-						name: { type: "string" },
-						path: { type: "string" },
-					},
-					required: ["name", "path"],
-				},
-			},
-			execute: async (call, context) => {
+				inputSchema: z.object({
+					name: z.string(),
+					path: z.string(),
+				}),
+
+			}),
+			async (call, context) => {
 				const name = String(call.input.name ?? "");
 				const path = String(call.input.path ?? "");
 				const skill = await context.skills.open(name);
@@ -392,17 +387,15 @@ export function createDefaultTools(): RuntimeTool[] {
 					content: file.content,
 				};
 			},
-		},
-		{
-			schema: {
-				name: "compact",
+		),
+		createRuntimeTool(
+			"compact",
+			tool({
 				description: "手动触发会话压缩",
-				inputSchema: {
-					type: "object",
-					properties: {},
-				},
-			},
-			execute: async (call) => ({
+				inputSchema: z.object({}),
+
+			}),
+			async (call) => ({
 				toolUseId: call.id,
 				name: call.name,
 				content: "__COMPACT__",
@@ -410,21 +403,18 @@ export function createDefaultTools(): RuntimeTool[] {
 					action: "compact",
 				},
 			}),
-		},
-		{
-			schema: {
-				name: "task_create",
+		),
+		createRuntimeTool(
+			"task_create",
+			tool({
 				description: "创建最小 task",
-				inputSchema: {
-					type: "object",
-					properties: {
-						title: { type: "string" },
-						description: { type: "string" },
-					},
-					required: ["title"],
-				},
-			},
-			execute: async (call, context) => {
+				inputSchema: z.object({
+					title: z.string(),
+					description: z.string().optional(),
+				}),
+
+			}),
+			async (call, context) => {
 				const task = createTask({
 					title: String(call.input.title ?? ""),
 					description: call.input.description ? String(call.input.description) : undefined,
@@ -439,17 +429,15 @@ export function createDefaultTools(): RuntimeTool[] {
 					content: `Created task ${task.id}: ${task.title}`,
 				};
 			},
-		},
-		{
-			schema: {
-				name: "task_list",
+		),
+		createRuntimeTool(
+			"task_list",
+			tool({
 				description: "列出当前会话 task",
-				inputSchema: {
-					type: "object",
-					properties: {},
-				},
-			},
-			execute: async (call, context) => {
+				inputSchema: z.object({}),
+
+			}),
+			async (call, context) => {
 				const session = await context.getSession();
 				return {
 					toolUseId: call.id,
@@ -468,25 +456,22 @@ export function createDefaultTools(): RuntimeTool[] {
 							.join("\n") || "No tasks.",
 				};
 			},
-		},
-		{
-			schema: {
-				name: "task_update",
+		),
+		createRuntimeTool(
+			"task_update",
+			tool({
 				description: "更新最小 task 状态或内容",
-				inputSchema: {
-					type: "object",
-					properties: {
-						id: { type: "string" },
-						title: { type: "string" },
-						description: { type: "string" },
-						status: { type: "string" },
-						addBlockedBy: { type: "array" },
-						addBlocks: { type: "array" },
-					},
-					required: ["id"],
-				},
-			},
-			execute: async (call, context) => {
+				inputSchema: z.object({
+					id: z.string(),
+					title: z.string().optional(),
+					description: z.string().optional(),
+					status: z.string().optional(),
+					addBlockedBy: z.array(z.string()).optional(),
+					addBlocks: z.array(z.string()).optional(),
+				}),
+
+			}),
+			async (call, context) => {
 				await context.updateSession((session) => ({
 					...session,
 					tasks: updateTask(session.tasks, {
@@ -509,20 +494,17 @@ export function createDefaultTools(): RuntimeTool[] {
 					content: `Updated task ${String(call.input.id ?? "")}`,
 				};
 			},
-		},
-		{
-			schema: {
-				name: "task_get",
+		),
+		createRuntimeTool(
+			"task_get",
+			tool({
 				description: "获取单个 task 的完整信息",
-				inputSchema: {
-					type: "object",
-					properties: {
-						id: { type: "string" },
-					},
-					required: ["id"],
-				},
-			},
-			execute: async (call, context) => {
+				inputSchema: z.object({
+					id: z.string(),
+				}),
+
+			}),
+			async (call, context) => {
 				const session = await context.getSession();
 				const task = getTask(session.tasks, String(call.input.id ?? ""));
 				return {
@@ -531,7 +513,7 @@ export function createDefaultTools(): RuntimeTool[] {
 					content: JSON.stringify(task, null, 2),
 				};
 			},
-		},
+		),
 	];
 }
 

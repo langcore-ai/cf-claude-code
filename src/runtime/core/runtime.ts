@@ -30,9 +30,31 @@ import { InMemoryWorkspace, type Workspace } from "../workspace";
 /** Todo nag 触发阈值 */
 const TODO_NAG_THRESHOLD = 3;
 
+/** 默认运行时行为约束，强调必须通过真实工具完成工作区操作 */
+const DEFAULT_RUNTIME_SYSTEM_PROMPT = [
+	"You are a pragmatic agent runtime assistant.",
+	"",
+	"When a user asks you to inspect, create, modify, rename, move, copy, or delete workspace files, you must use the available tools to do the work.",
+	"Do not answer with pseudo-code, example code, or a description of what you would do instead of actually calling the tool.",
+	"Do not claim that a file was created or updated unless the corresponding tool call succeeded.",
+	"",
+	"When you maintain todos, break the plan into the smallest executable steps.",
+	"Each todo item should describe exactly one concrete action, not a bundle of multiple files, endpoints, dependencies, or UI tasks.",
+	"If a request contains several implementation tasks, represent them as multiple TodoWrite items instead of a single summary item.",
+	"",
+	"For file writes, the path must be a file path such as /README.md or /notes/todo.txt.",
+	"Never use / as a file path because / is the workspace root directory, not a file.",
+	"If the user asks to create a file in the root, translate that into a concrete path such as /README.md.",
+	"",
+	"For state_exec, you must provide a complete code argument whose value is a full async JavaScript function like async () => { ... }.",
+	"Never call state_exec with an empty input or without the code field.",
+	"",
+	"If a tool call fails, inspect the error, correct the arguments, and retry with a fixed call instead of repeating the same invalid input.",
+].join("\n");
+
 /** 默认会话配置 */
 export const DEFAULT_SESSION_CONFIG: SessionConfig = {
-	systemPrompt: "You are a pragmatic agent runtime assistant.",
+	systemPrompt: DEFAULT_RUNTIME_SYSTEM_PROMPT,
 	tokenThreshold: 4000,
 	maxTurnsPerMessage: 6,
 };
@@ -153,7 +175,7 @@ export class MemoryAgentRuntime implements AgentRuntime {
 		this.workspace = deps.workspace ?? new InMemoryWorkspace("phase-1-runtime");
 		this.skillProvider = deps.skillProvider ?? new InMemorySkillProvider();
 		const tools = deps.tools ?? DEFAULT_TOOLS;
-		this.hasStateExec = Boolean(deps.stateExecutor) && tools.some((tool) => tool.schema.name === "state_exec");
+		this.hasStateExec = Boolean(deps.stateExecutor) && tools.some((tool) => tool.name === "state_exec");
 		this.dispatcher = new ToolDispatcher(tools);
 		this.subagentRunner = new SubagentRunner({
 			aiClient: deps.aiClient,
@@ -489,6 +511,9 @@ export class MemoryAgentRuntime implements AgentRuntime {
 	 */
 	async writeWorkspaceFile(sessionId: string, path: string, content: string): Promise<void> {
 		await this.requireSession(sessionId);
+		if (path === "/") {
+			throw new Error("path must point to a file, not the workspace root");
+		}
 		await this.workspace.files.writeFile(path, content);
 	}
 

@@ -1,3 +1,5 @@
+import {  type z } from "zod";
+
 /** 会话内可用的消息角色 */
 export type MessageRole = "system" | "user" | "assistant";
 
@@ -58,7 +60,9 @@ export interface ToolSchema {
 	/** 工具说明 */
 	description: string;
 	/** JSON Schema 风格的输入定义 */
-	inputSchema: Record<string, unknown>;
+	inputSchema: Record<string, unknown> | z.ZodObject;
+	/** 可选的 AI SDK 官方工具对象；仅在 adapter 边界使用 */
+	sdkTool?: unknown;
 }
 
 /** 一次工具调用请求 */
