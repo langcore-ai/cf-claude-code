@@ -33,7 +33,7 @@
 ## 3. 模块结构（Module Structure）
 
 - `src/worker/index.ts`：当前 Worker 主链路与 workspace 文件系统 API 入口，已接入 durable runtime。
-- `src/react-app/`：当前 playground 前端入口，已落地 sidebar + chat / preview 的页面框架、真实 workspace 文件树、文件预览、上传文件模态框，以及基于 session snapshot 的结构化 runtime 观察视图（messages / todos / tasks / runtime）。
+- `src/react-app/`：当前 playground 前端入口，已落地 sidebar + chat / preview 的页面框架、真实 workspace 文件树、文件预览、上传文件模态框、文件树中的新建文件 / 新建目录 / rename / move / copy / delete 操作，以及基于 session snapshot 的结构化 runtime 观察视图（messages / todos / tasks / runtime）。
 - `src/runtime/`：当前 runtime 核心实现目录，已具备 runtime core + durable 接线。
 - `external/learn-claude-code/`：Claude Code 风格 harness 的教学拆解参考。
 - `external/my-claude-code/`：内存态 runtime 的代码参考。
@@ -66,7 +66,7 @@
 ## 6. 影响范围（Impact Scope）
 
 - 根 README 和本文件定义了项目方向；后续目录切分、接口命名、模块边界都应与这里保持一致。
-- `src/worker/` 当前已落地 session 主链路 API 和 workspace 文件系统 API（含上传、copy、move、rename）；后续会继续扩展 tools、subagents 和事件流。
+- `src/worker/` 当前已落地 session 主链路 API 和 workspace 文件系统 API（含上传、create file、mkdir、copy、move、rename、delete）；后续会继续扩展 tools、subagents 和事件流。
 - `src/react-app/` 当前已开始承接 playground 联调，但仍应保持“验证 runtime 能力”的最小闭环，不要提前扩散成完整 IDE。
 - chat 区当前应优先承担“真实 runtime 行为验证”职责：展示结构化消息块、Todo、Task 和 compact 状态，而不是先扩散到复杂控制台能力。
 - `external/*` 是参考实现，不应被当成主项目最终目录结构直接复制。

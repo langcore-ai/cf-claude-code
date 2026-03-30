@@ -58,6 +58,11 @@ export interface FileSystemView {
 	 */
 	writeFile(path: string, content: string): Promise<void>;
 	/**
+	 * 创建目录
+	 * @param path 目录路径
+	 */
+	mkdir(path: string): Promise<void>;
+	/**
 	 * 列出目录直接子节点
 	 * @param path 目录路径
 	 */
@@ -79,6 +84,11 @@ export interface FileSystemView {
 	 * @param to 目标路径
 	 */
 	move(from: string, to: string): Promise<void>;
+	/**
+	 * 删除文件或目录
+	 * @param path 目标路径
+	 */
+	remove(path: string): Promise<void>;
 }
 
 /** Runtime 工作区 */
@@ -240,6 +250,14 @@ class ShellFileSystemViewAdapter implements FileSystemView {
 	}
 
 	/**
+	 * 创建目录
+	 * @param path 目录路径
+	 */
+	async mkdir(path: string): Promise<void> {
+		await this.fs.mkdir(normalizePath(path), { recursive: true });
+	}
+
+	/**
 	 * 列出目录直接子节点
 	 * @param path 目录路径
 	 * @returns 子节点元信息
@@ -281,6 +299,14 @@ class ShellFileSystemViewAdapter implements FileSystemView {
 	async move(from: string, to: string): Promise<void> {
 		await this.fs.mv(normalizePath(from), normalizePath(to));
 	}
+
+	/**
+	 * 删除文件或目录
+	 * @param path 目标路径
+	 */
+	async remove(path: string): Promise<void> {
+		await this.fs.rm(normalizePath(path), { recursive: true });
+	}
 }
 
 /**
@@ -317,6 +343,14 @@ class ScopedFileSystemView implements FileSystemView {
 	 */
 	async writeFile(path: string, content: string): Promise<void> {
 		await this.base.writeFile(this.resolve(path), content);
+	}
+
+	/**
+	 * 创建目录
+	 * @param path 相对目录路径
+	 */
+	async mkdir(path: string): Promise<void> {
+		await this.base.mkdir(this.resolve(path));
 	}
 
 	/**
@@ -357,6 +391,14 @@ class ScopedFileSystemView implements FileSystemView {
 	 */
 	async move(from: string, to: string): Promise<void> {
 		await this.base.move(this.resolve(from), this.resolve(to));
+	}
+
+	/**
+	 * 删除文件或目录
+	 * @param path 相对目标路径
+	 */
+	async remove(path: string): Promise<void> {
+		await this.base.remove(this.resolve(path));
 	}
 
 	/**

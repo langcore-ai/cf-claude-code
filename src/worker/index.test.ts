@@ -834,6 +834,107 @@ describe("worker api", () => {
 		expect((await renamedResponse.json() as { content: string }).content).toBe("rename me");
 	});
 
+	test("DELETE /api/sessions/:id/workspace/entry 删除文件", async () => {
+		const app = createApp(createTestRuntimeFactory());
+		const createResponse = await app.request("http://local/api/sessions", {
+			method: "POST",
+			body: JSON.stringify({}),
+			headers: {
+				"content-type": "application/json",
+			},
+		}, {
+			TEST_ONLY: true,
+		});
+		const created = await createResponse.json() as { sessionId: string };
+
+		await app.request(`http://local/api/sessions/${created.sessionId}/workspace/file`, {
+			method: "PUT",
+			body: JSON.stringify({
+				path: "/trash/delete-me.txt",
+				content: "delete me",
+			}),
+			headers: {
+				"content-type": "application/json",
+			},
+		}, {
+			TEST_ONLY: true,
+		});
+
+		const deleteResponse = await app.request(
+			`http://local/api/sessions/${created.sessionId}/workspace/entry?path=${encodeURIComponent("/trash/delete-me.txt")}`,
+			{
+				method: "DELETE",
+			},
+			{ TEST_ONLY: true },
+		);
+
+		expect(deleteResponse.status).toBe(200);
+		expect(await deleteResponse.json()).toEqual({
+			ok: true,
+			sessionId: created.sessionId,
+			path: "/trash/delete-me.txt",
+		});
+
+		const existsResponse = await app.request(
+			`http://local/api/sessions/${created.sessionId}/workspace/exists?path=${encodeURIComponent("/trash/delete-me.txt")}`,
+			{},
+			{ TEST_ONLY: true },
+		);
+		expect(existsResponse.status).toBe(200);
+		expect(await existsResponse.json()).toEqual({
+			sessionId: created.sessionId,
+			path: "/trash/delete-me.txt",
+			exists: false,
+		});
+	});
+
+	test("POST /api/sessions/:id/workspace/mkdir 创建目录", async () => {
+		const app = createApp(createTestRuntimeFactory());
+		const createResponse = await app.request("http://local/api/sessions", {
+			method: "POST",
+			body: JSON.stringify({}),
+			headers: {
+				"content-type": "application/json",
+			},
+		}, {
+			TEST_ONLY: true,
+		});
+		const created = await createResponse.json() as { sessionId: string };
+
+		const mkdirResponse = await app.request(
+			`http://local/api/sessions/${created.sessionId}/workspace/mkdir`,
+			{
+				method: "POST",
+				body: JSON.stringify({
+					path: "/docs/archive",
+				}),
+				headers: {
+					"content-type": "application/json",
+				},
+			},
+			{ TEST_ONLY: true },
+		);
+
+		expect(mkdirResponse.status).toBe(200);
+		expect(await mkdirResponse.json()).toEqual({
+			ok: true,
+			sessionId: created.sessionId,
+			path: "/docs/archive",
+		});
+
+		const treeResponse = await app.request(
+			`http://local/api/sessions/${created.sessionId}/workspace/tree?path=${encodeURIComponent("/docs")}`,
+			{},
+			{ TEST_ONLY: true },
+		);
+		expect(treeResponse.status).toBe(200);
+		expect(await treeResponse.json()).toEqual({
+			sessionId: created.sessionId,
+			path: "/docs",
+			entries: [{ path: "/docs/archive", type: "directory" }],
+		});
+	});
+
 	test("workspace path operation 缺少 from/to 时返回 400", async () => {
 		const app = createApp(createTestRuntimeFactory());
 		const createResponse = await app.request("http://local/api/sessions", {

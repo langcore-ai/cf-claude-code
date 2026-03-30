@@ -65,6 +65,11 @@ interface WorkspacePathOperationBody {
 	to: string;
 }
 
+/** 创建工作区目录请求体 */
+interface CreateWorkspaceDirectoryBody {
+	path: string;
+}
+
 /** 上传文件后的结果 */
 interface UploadedWorkspaceFile {
 	path: string;
@@ -278,6 +283,22 @@ function parseWorkspacePathOperationBody(body: unknown): WorkspacePathOperationB
 	return {
 		from: payload.from,
 		to: payload.to,
+	};
+}
+
+/**
+ * 读取并校验创建目录请求体。
+ * @param body 原始 body
+ * @returns 规范化后的目录路径
+ */
+function parseCreateWorkspaceDirectoryBody(body: unknown): CreateWorkspaceDirectoryBody {
+	const payload = typeof body === "object" && body !== null ? body as Record<string, unknown> : null;
+	if (!payload || typeof payload.path !== "string" || payload.path.trim() === "") {
+		throw new Error("path must be a non-empty string");
+	}
+
+	return {
+		path: parsePathQuery(payload.path),
 	};
 }
 
@@ -651,6 +672,33 @@ export function createApp<TBindings extends object = WorkerBindings>(
 		}
 	});
 
+	app.post("/api/sessions/:sessionId/workspace/mkdir", async (c) => {
+		const sessionId = c.req.param("sessionId");
+		try {
+			const body = parseCreateWorkspaceDirectoryBody(await c.req.json().catch(() => null));
+			const runtime = runtimeFactory(c.env, sessionId);
+			await runtime.createWorkspaceDirectory(sessionId, body.path);
+			return c.json({
+				ok: true,
+				sessionId,
+				path: body.path,
+			});
+		} catch (error) {
+			if (error instanceof Error && error.message === "path must be a non-empty string") {
+				return jsonError(c, 400, "INVALID_REQUEST", error.message);
+			}
+			if (isSessionNotFoundError(error)) {
+				return jsonError(c, 404, "SESSION_NOT_FOUND", `Session not found: ${sessionId}`);
+			}
+			return jsonError(
+				c,
+				500,
+				"RUNTIME_ERROR",
+				error instanceof Error ? error.message : "Failed to create workspace directory",
+			);
+		}
+	});
+
 	app.post("/api/sessions/:sessionId/workspace/copy", async (c) => {
 		const sessionId = c.req.param("sessionId");
 		try {
@@ -740,6 +788,33 @@ export function createApp<TBindings extends object = WorkerBindings>(
 				500,
 				"RUNTIME_ERROR",
 				error instanceof Error ? error.message : "Failed to rename workspace entry",
+			);
+		}
+	});
+
+	app.delete("/api/sessions/:sessionId/workspace/entry", async (c) => {
+		const sessionId = c.req.param("sessionId");
+		try {
+			const path = parsePathQuery(c.req.query("path"));
+			const runtime = runtimeFactory(c.env, sessionId);
+			await runtime.deleteWorkspaceEntry(sessionId, path);
+			return c.json({
+				ok: true,
+				sessionId,
+				path,
+			});
+		} catch (error) {
+			if (error instanceof Error && error.message === "path must be a non-empty string") {
+				return jsonError(c, 400, "INVALID_REQUEST", error.message);
+			}
+			if (isSessionNotFoundError(error)) {
+				return jsonError(c, 404, "SESSION_NOT_FOUND", `Session not found: ${sessionId}`);
+			}
+			return jsonError(
+				c,
+				500,
+				"RUNTIME_ERROR",
+				error instanceof Error ? error.message : "Failed to delete workspace entry",
 			);
 		}
 	});

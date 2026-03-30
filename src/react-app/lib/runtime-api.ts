@@ -105,6 +105,38 @@ interface WorkspaceUploadResponse {
 	filename: string;
 }
 
+/** 工作区路径操作响应 */
+interface WorkspacePathOperationResponse {
+	/** 是否成功 */
+	ok: true;
+	/** 会话 id */
+	sessionId: string;
+	/** 源路径 */
+	from: string;
+	/** 目标路径 */
+	to: string;
+}
+
+/** 删除工作区节点响应 */
+interface WorkspaceDeleteResponse {
+	/** 是否成功 */
+	ok: true;
+	/** 会话 id */
+	sessionId: string;
+	/** 删除路径 */
+	path: string;
+}
+
+/** 创建目录响应 */
+interface WorkspaceMkdirResponse {
+	/** 是否成功 */
+	ok: true;
+	/** 会话 id */
+	sessionId: string;
+	/** 目录路径 */
+	path: string;
+}
+
 /**
  * 发起 JSON 请求，并在 Worker 返回错误时抛出带 message 的异常。
  * @param input 请求地址
@@ -220,6 +252,30 @@ export async function readWorkspaceFile(
 }
 
 /**
+ * 手动写入工作区文件内容。
+ * @param sessionId 会话 id
+ * @param path 文件路径
+ * @param content 文件内容
+ * @returns 写入结果
+ */
+export async function writeWorkspaceFile(
+	sessionId: string,
+	path: string,
+	content: string,
+): Promise<{ ok: true; sessionId: string; path: string }> {
+	return requestJson<{ ok: true; sessionId: string; path: string }>(
+		`${RUNTIME_API_BASE}/sessions/${sessionId}/workspace/file`,
+		{
+			method: "PUT",
+			headers: {
+				"content-type": "application/json",
+			},
+			body: JSON.stringify({ path, content }),
+		},
+	);
+}
+
+/**
  * 上传文件到当前工作区。
  * @param sessionId 会话 id
  * @param file 目标文件
@@ -242,6 +298,119 @@ export async function uploadWorkspaceFile(
 		{
 			method: "POST",
 			body: formData,
+		},
+	);
+}
+
+/**
+ * 复制工作区节点。
+ * @param sessionId 会话 id
+ * @param from 源路径
+ * @param to 目标路径
+ * @returns 路径操作结果
+ */
+export async function copyWorkspaceEntry(
+	sessionId: string,
+	from: string,
+	to: string,
+): Promise<WorkspacePathOperationResponse> {
+	return requestJson<WorkspacePathOperationResponse>(
+		`${RUNTIME_API_BASE}/sessions/${sessionId}/workspace/copy`,
+		{
+			method: "POST",
+			headers: {
+				"content-type": "application/json",
+			},
+			body: JSON.stringify({ from, to }),
+		},
+	);
+}
+
+/**
+ * 移动工作区节点。
+ * @param sessionId 会话 id
+ * @param from 源路径
+ * @param to 目标路径
+ * @returns 路径操作结果
+ */
+export async function moveWorkspaceEntry(
+	sessionId: string,
+	from: string,
+	to: string,
+): Promise<WorkspacePathOperationResponse> {
+	return requestJson<WorkspacePathOperationResponse>(
+		`${RUNTIME_API_BASE}/sessions/${sessionId}/workspace/move`,
+		{
+			method: "POST",
+			headers: {
+				"content-type": "application/json",
+			},
+			body: JSON.stringify({ from, to }),
+		},
+	);
+}
+
+/**
+ * 重命名工作区节点。
+ * @param sessionId 会话 id
+ * @param from 源路径
+ * @param to 目标路径
+ * @returns 路径操作结果
+ */
+export async function renameWorkspaceEntry(
+	sessionId: string,
+	from: string,
+	to: string,
+): Promise<WorkspacePathOperationResponse> {
+	return requestJson<WorkspacePathOperationResponse>(
+		`${RUNTIME_API_BASE}/sessions/${sessionId}/workspace/rename`,
+		{
+			method: "POST",
+			headers: {
+				"content-type": "application/json",
+			},
+			body: JSON.stringify({ from, to }),
+		},
+	);
+}
+
+/**
+ * 删除工作区节点。
+ * @param sessionId 会话 id
+ * @param path 目标路径
+ * @returns 删除结果
+ */
+export async function deleteWorkspaceEntry(
+	sessionId: string,
+	path: string,
+): Promise<WorkspaceDeleteResponse> {
+	const search = new URLSearchParams({ path });
+	return requestJson<WorkspaceDeleteResponse>(
+		`${RUNTIME_API_BASE}/sessions/${sessionId}/workspace/entry?${search.toString()}`,
+		{
+			method: "DELETE",
+		},
+	);
+}
+
+/**
+ * 在工作区中创建目录。
+ * @param sessionId 会话 id
+ * @param path 目录路径
+ * @returns 创建结果
+ */
+export async function createWorkspaceDirectory(
+	sessionId: string,
+	path: string,
+): Promise<WorkspaceMkdirResponse> {
+	return requestJson<WorkspaceMkdirResponse>(
+		`${RUNTIME_API_BASE}/sessions/${sessionId}/workspace/mkdir`,
+		{
+			method: "POST",
+			headers: {
+				"content-type": "application/json",
+			},
+			body: JSON.stringify({ path }),
 		},
 	);
 }

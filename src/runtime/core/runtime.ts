@@ -518,6 +518,19 @@ export class MemoryAgentRuntime implements AgentRuntime {
 	}
 
 	/**
+	 * 在工作区中创建目录。
+	 * @param sessionId 会话 id
+	 * @param path 目录路径
+	 */
+	async createWorkspaceDirectory(sessionId: string, path: string): Promise<void> {
+		await this.requireSession(sessionId);
+		if (path === "/") {
+			return;
+		}
+		await this.workspace.files.mkdir(path);
+	}
+
+	/**
 	 * 检查工作区路径是否存在。
 	 * @param sessionId 会话 id
 	 * @param path 文件或目录路径
@@ -549,6 +562,16 @@ export class MemoryAgentRuntime implements AgentRuntime {
 	async moveWorkspaceEntry(sessionId: string, from: string, to: string): Promise<void> {
 		await this.requireSession(sessionId);
 		await this.workspace.files.move(from, to);
+	}
+
+	/**
+	 * 删除工作区中的文件或目录。
+	 * @param sessionId 会话 id
+	 * @param path 目标路径
+	 */
+	async deleteWorkspaceEntry(sessionId: string, path: string): Promise<void> {
+		await this.requireSession(sessionId);
+		await this.workspace.files.remove(path);
 	}
 
 	/**

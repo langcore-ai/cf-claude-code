@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
-import { FileUpIcon, LoaderCircleIcon, PanelLeftIcon, RefreshCwIcon, SparklesIcon, XIcon } from "lucide-react";
+import { CopyIcon, FileUpIcon, LoaderCircleIcon, MoveRightIcon, PanelLeftIcon, PencilIcon, RefreshCwIcon, SparklesIcon, Trash2Icon, XIcon } from "lucide-react";
 import { useLocalStorage } from "react-use";
 
 import { ChatMessageCard } from "@/components/chat-message-card";
@@ -26,15 +26,21 @@ import {
 import { formatBytes, useFileUpload } from "@/hooks/use-file-upload";
 import {
 	createSession,
+	createWorkspaceDirectory,
+	copyWorkspaceEntry,
+	deleteWorkspaceEntry,
 	getSession,
 	listWorkspaceTree,
 	listSessions,
 	readWorkspaceFile,
+	renameWorkspaceEntry,
 	sendMessage,
 	shutdownSession,
 	type RuntimeSessionDto,
 	type WorkspaceEntryDto,
+	moveWorkspaceEntry,
 	uploadWorkspaceFile,
+	writeWorkspaceFile,
 } from "@/react-app/lib/runtime-api";
 
 /** 右侧分栏布局的 localStorage key */
@@ -70,6 +76,16 @@ interface SessionListItem {
 	summary: string;
 }
 
+/** 工作区选中节点 */
+interface SelectedWorkspaceNode {
+	/** 节点路径 */
+	path: string;
+	/** 节点名称 */
+	name: string;
+	/** 节点类型 */
+	type: WorkspaceTreeNode["type"];
+}
+
 /** 会话列表上限 */
 const MAX_SESSION_ITEMS = 8;
 
@@ -81,8 +97,18 @@ const FILE_UPLOAD_MAX_SIZE = 100 * 1024 * 1024;
 /** 文件上传数量上限 */
 const FILE_UPLOAD_MAX_FILES = 10;
 
+/** 工作区路径操作类型 */
+type WorkspaceOperationType =
+	| "copy"
+	| "move"
+	| "rename"
+	| "delete"
+	| "create_file"
+	| "create_directory";
+
 function App() {
 	const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
+	const [selectedWorkspaceNode, setSelectedWorkspaceNode] = useState<SelectedWorkspaceNode | null>(null);
 	const [sessionItems, setSessionItems] = useState<SessionListItem[]>([]);
 	const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
 	const [currentSession, setCurrentSession] = useState<RuntimeSessionDto | null>(null);
@@ -95,7 +121,10 @@ function App() {
 	const [selectedFileContent, setSelectedFileContent] = useState("");
 	const [isLoadingSelectedFile, setIsLoadingSelectedFile] = useState(false);
 	const [isUploadDialogOpen, setIsUploadDialogOpen] = useState(false);
+	const [activeWorkspaceDialog, setActiveWorkspaceDialog] = useState<WorkspaceOperationType | null>(null);
 	const [isUploadingFiles, setIsUploadingFiles] = useState(false);
+	const [isSubmittingWorkspaceAction, setIsSubmittingWorkspaceAction] = useState(false);
+	const [workspaceActionValue, setWorkspaceActionValue] = useState("");
 	const [runtimeError, setRuntimeError] = useState<string | null>(null);
 	const [activeRuntimeTab, setActiveRuntimeTab] = useState<RuntimePanelTab>("messages");
 	const [pendingUserMessage, setPendingUserMessage] = useState<string | null>(null);
@@ -200,6 +229,7 @@ function App() {
 			setCurrentSession(response.session);
 			setSelectedSessionId(response.sessionId);
 			upsertSessionItem(response.session);
+			setSelectedWorkspaceNode(null);
 			setSelectedFilePath(null);
 			setSelectedFileContent("");
 			setActiveRuntimeTab("messages");
@@ -225,6 +255,7 @@ function App() {
 				const latestSession = response.sessions[0];
 				setCurrentSession(latestSession);
 				setSelectedSessionId(latestSession.id);
+				setSelectedWorkspaceNode(null);
 				setSelectedFilePath(null);
 				setSelectedFileContent("");
 				setActiveRuntimeTab("messages");
@@ -236,6 +267,7 @@ function App() {
 			setCurrentSession(created.session);
 			setSelectedSessionId(created.sessionId);
 			upsertSessionItem(created.session);
+			setSelectedWorkspaceNode(null);
 			setSelectedFilePath(null);
 			setSelectedFileContent("");
 			setActiveRuntimeTab("messages");
@@ -259,6 +291,7 @@ function App() {
 			setCurrentSession(response.session);
 			setSelectedSessionId(response.sessionId);
 			upsertSessionItem(response.session);
+			setSelectedWorkspaceNode(null);
 			setSelectedFilePath(null);
 			setSelectedFileContent("");
 			setActiveRuntimeTab("messages");
@@ -352,6 +385,115 @@ function App() {
 	}
 
 	/**
+	 * 提交当前工作区节点操作。
+	 */
+	async function handleSubmitWorkspaceAction() {
+		if (!selectedSessionId || !activeWorkspaceDialog) {
+			return;
+		}
+		const currentNode = selectedWorkspaceNode;
+
+		const nextValue = workspaceActionValue.trim();
+		if (activeWorkspaceDialog !== "delete" && nextValue === "") {
+			setRuntimeError("目标路径不能为空");
+			return;
+		}
+
+		const targetPath = activeWorkspaceDialog === "rename" && currentNode
+			? buildRenamedPath(currentNode.path, nextValue)
+			: nextValue;
+
+		try {
+			setRuntimeError(null);
+			setIsSubmittingWorkspaceAction(true);
+			if (activeWorkspaceDialog === "delete") {
+				if (!currentNode) {
+					return;
+				}
+				await deleteWorkspaceEntry(selectedSessionId, currentNode.path);
+			} else if (activeWorkspaceDialog === "create_file") {
+				await writeWorkspaceFile(selectedSessionId, targetPath, "");
+			} else if (activeWorkspaceDialog === "create_directory") {
+				await createWorkspaceDirectory(selectedSessionId, targetPath);
+			} else if (activeWorkspaceDialog === "copy") {
+				if (!currentNode) {
+					return;
+				}
+				await copyWorkspaceEntry(selectedSessionId, currentNode.path, targetPath);
+			} else if (activeWorkspaceDialog === "move") {
+				if (!currentNode) {
+					return;
+				}
+				await moveWorkspaceEntry(selectedSessionId, currentNode.path, targetPath);
+			} else {
+				if (!currentNode) {
+					return;
+				}
+				await renameWorkspaceEntry(selectedSessionId, currentNode.path, targetPath);
+			}
+
+			await refreshWorkspaceTree(selectedSessionId);
+			if (activeWorkspaceDialog === "delete") {
+				setSelectedWorkspaceNode(null);
+				if (selectedFilePath === currentNode?.path) {
+					setSelectedFilePath(null);
+					setSelectedFileContent("");
+				}
+			} else if (activeWorkspaceDialog === "create_file") {
+				setSelectedWorkspaceNode({
+					path: targetPath,
+					name: getWorkspaceNodeName(targetPath),
+					type: "file",
+				});
+				await handleSelectFile(targetPath);
+			} else if (activeWorkspaceDialog === "create_directory") {
+				setSelectedWorkspaceNode({
+					path: targetPath,
+					name: getWorkspaceNodeName(targetPath),
+					type: "directory",
+				});
+				setSelectedFilePath(null);
+				setSelectedFileContent("");
+			} else {
+				if (!currentNode) {
+					return;
+				}
+				setSelectedWorkspaceNode({
+					...currentNode,
+					path: targetPath,
+					name: getWorkspaceNodeName(targetPath),
+				});
+				if (selectedFilePath === currentNode.path && currentNode.type === "file") {
+					await handleSelectFile(targetPath);
+				}
+			}
+			setActiveWorkspaceDialog(null);
+			setWorkspaceActionValue("");
+		} catch (error) {
+			setRuntimeError(error instanceof Error ? error.message : "Failed to update workspace entry");
+		} finally {
+			setIsSubmittingWorkspaceAction(false);
+		}
+	}
+
+	/**
+	 * 打开工作区操作对话框。
+	 * @param type 操作类型
+	 */
+	function openWorkspaceActionDialog(type: WorkspaceOperationType) {
+		if (
+			(type === "copy" || type === "move" || type === "rename" || type === "delete") &&
+			!selectedWorkspaceNode
+		) {
+			return;
+		}
+
+		setRuntimeError(null);
+		setActiveWorkspaceDialog(type);
+		setWorkspaceActionValue(buildWorkspaceOperationDefaultValue(type, selectedWorkspaceNode));
+	}
+
+	/**
 	 * 将上传区里的文件批量写入当前工作区。
 	 */
 	async function handleUploadFiles() {
@@ -386,6 +528,7 @@ function App() {
 		}
 		return selectedSessionId;
 	}, [isRefreshingWorkspace, selectedSessionId]);
+	const selectedWorkspaceLabel = selectedWorkspaceNode?.path ?? selectedSessionId ?? "未选中节点";
 	const workspaceTreeKey = useMemo(
 		() => `${selectedSessionId ?? "no-session"}:${collectWorkspaceTreePaths(workspaceTree).join("|")}`,
 		[selectedSessionId, workspaceTree],
@@ -486,6 +629,58 @@ function App() {
 										</div>
 										<div className="flex items-center gap-2">
 											<Button
+												disabled={!selectedSessionId || isSubmittingWorkspaceAction}
+												onClick={() => openWorkspaceActionDialog("create_file")}
+												size="sm"
+												variant="outline"
+											>
+												New File
+											</Button>
+											<Button
+												disabled={!selectedSessionId || isSubmittingWorkspaceAction}
+												onClick={() => openWorkspaceActionDialog("create_directory")}
+												size="sm"
+												variant="outline"
+											>
+												New Dir
+											</Button>
+											<Button
+												disabled={!selectedWorkspaceNode || isSubmittingWorkspaceAction}
+												onClick={() => openWorkspaceActionDialog("delete")}
+												size="icon"
+												variant="outline"
+											>
+												<Trash2Icon className="size-4" />
+												<span className="sr-only">Delete selected entry</span>
+											</Button>
+											<Button
+												disabled={!selectedWorkspaceNode || isSubmittingWorkspaceAction}
+												onClick={() => openWorkspaceActionDialog("rename")}
+												size="icon"
+												variant="outline"
+											>
+												<PencilIcon className="size-4" />
+												<span className="sr-only">Rename selected entry</span>
+											</Button>
+											<Button
+												disabled={!selectedWorkspaceNode || isSubmittingWorkspaceAction}
+												onClick={() => openWorkspaceActionDialog("copy")}
+												size="icon"
+												variant="outline"
+											>
+												<CopyIcon className="size-4" />
+												<span className="sr-only">Copy selected entry</span>
+											</Button>
+											<Button
+												disabled={!selectedWorkspaceNode || isSubmittingWorkspaceAction}
+												onClick={() => openWorkspaceActionDialog("move")}
+												size="icon"
+												variant="outline"
+											>
+												<MoveRightIcon className="size-4" />
+												<span className="sr-only">Move selected entry</span>
+											</Button>
+											<Button
 												disabled={!selectedSessionId || isRefreshingWorkspace}
 												onClick={() => {
 													if (!selectedSessionId) {
@@ -511,20 +706,26 @@ function App() {
 										</div>
 									</div>
 
-									<div className="min-h-0 flex-1 overflow-hidden">
+										<div className="min-h-0 flex-1 overflow-hidden">
 										<WorkspaceFileTree
 											className="h-full min-h-full border-sidebar-border bg-sidebar"
 											defaultExpandedPaths={DEFAULT_EXPANDED_PATHS}
 											key={workspaceTreeKey}
 											nodes={workspaceTree}
 											onSelectPath={(path, node) => {
+												setSelectedWorkspaceNode({
+													path,
+													name: node.name,
+													type: node.type,
+												});
 												if (node.type !== "file") {
 													setSelectedFilePath(null);
+													setSelectedFileContent("");
 													return;
 												}
 												void handleSelectFile(path);
 											}}
-											selectedPath={selectedFilePath ?? undefined}
+											selectedPath={selectedWorkspaceNode?.path ?? selectedFilePath ?? undefined}
 										/>
 									</div>
 								</section>
@@ -721,6 +922,79 @@ function App() {
 					</DialogFooter>
 				</DialogContent>
 			</Dialog>
+
+			<Dialog
+				onOpenChange={(open) => {
+					setActiveWorkspaceDialog(open ? activeWorkspaceDialog : null);
+					if (!open) {
+						setWorkspaceActionValue("");
+					}
+				}}
+				open={activeWorkspaceDialog !== null}
+			>
+				<DialogContent>
+					<DialogHeader>
+						<DialogTitle>{getWorkspaceDialogTitle(activeWorkspaceDialog)}</DialogTitle>
+						<DialogDescription>
+							当前目标：{selectedWorkspaceLabel}
+						</DialogDescription>
+					</DialogHeader>
+
+					<div className="space-y-2">
+						{activeWorkspaceDialog === "delete" ? (
+							<p className="text-sm text-muted-foreground">
+								将删除当前选中的{selectedWorkspaceNode?.type === "directory" ? "目录及其全部内容" : "文件"}。此操作不可撤销。
+							</p>
+						) : (
+							<>
+								<label className="text-sm font-medium text-foreground" htmlFor="workspace-action-input">
+									{getWorkspaceDialogFieldLabel(activeWorkspaceDialog)}
+								</label>
+								<input
+									className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none ring-offset-background placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+									id="workspace-action-input"
+									onChange={(event) => setWorkspaceActionValue(event.target.value)}
+									placeholder={getWorkspaceDialogPlaceholder(activeWorkspaceDialog)}
+									value={workspaceActionValue}
+								/>
+								<p className="text-xs text-muted-foreground">
+									{getWorkspaceDialogHint(activeWorkspaceDialog)}
+								</p>
+							</>
+						)}
+					</div>
+
+					<DialogFooter>
+						<Button
+							onClick={() => setActiveWorkspaceDialog(null)}
+							variant="outline"
+						>
+							取消
+						</Button>
+						<Button
+							disabled={
+								isSubmittingWorkspaceAction ||
+								((activeWorkspaceDialog === "copy" ||
+									activeWorkspaceDialog === "move" ||
+									activeWorkspaceDialog === "rename" ||
+									activeWorkspaceDialog === "delete") &&
+									!selectedWorkspaceNode) ||
+								(activeWorkspaceDialog !== "delete" && workspaceActionValue.trim() === "")
+							}
+							onClick={() => void handleSubmitWorkspaceAction()}
+						>
+							{isSubmittingWorkspaceAction ? (
+								<>
+									<LoaderCircleIcon className="size-4 animate-spin" />
+									处理中...
+								</>
+							) : (
+								getWorkspaceDialogActionLabel(activeWorkspaceDialog)
+							)}
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
 		</main>
 	);
 }
@@ -810,6 +1084,175 @@ function buildSessionListItem(session: RuntimeSessionDto): SessionListItem {
 		status: session.closedAt ? "Closed" : "Active",
 		summary: lastText?.type === "text" ? lastText.text.slice(0, 48) || "No messages yet" : "No messages yet",
 	};
+}
+
+/**
+ * 获取工作区节点名。
+ * @param path 工作区绝对路径
+ * @returns 节点名称
+ */
+function getWorkspaceNodeName(path: string): string {
+	const segments = path.split("/").filter(Boolean);
+	return segments.length > 0 ? segments[segments.length - 1]! : "/";
+}
+
+/**
+ * 构造重命名后的目标路径。
+ * @param path 原始路径
+ * @param nextName 新名称
+ * @returns 新路径
+ */
+function buildRenamedPath(path: string, nextName: string): string {
+	const segments = path.split("/").filter(Boolean);
+	segments.pop();
+	const parentPath = segments.length > 0 ? `/${segments.join("/")}` : "";
+	return `${parentPath}/${nextName}`.replace(/\/{2,}/g, "/");
+}
+
+/**
+ * 为工作区操作生成默认输入值。
+ * @param type 当前操作类型
+ * @param node 当前选中节点
+ * @returns 预填充的输入值
+ */
+function buildWorkspaceOperationDefaultValue(
+	type: WorkspaceOperationType,
+	node: SelectedWorkspaceNode | null,
+): string {
+	if (type === "rename" && node) {
+		return node.name;
+	}
+	if (type === "delete" && node) {
+		return node.path;
+	}
+	if (type === "copy" || type === "move") {
+		return node?.path ?? "/";
+	}
+
+	const basePath =
+		node?.type === "directory"
+			? node.path
+			: node?.path
+				? buildRenamedPath(node.path, "")
+				: "/";
+
+	if (type === "create_file") {
+		return normalizeWorkspaceActionPath(`${basePath}/untitled.txt`);
+	}
+
+	return normalizeWorkspaceActionPath(`${basePath}/new-folder`);
+}
+
+/**
+ * 规范化前端工作区输入路径，避免出现双斜杠。
+ * @param path 原始路径
+ * @returns 规范化后的绝对路径
+ */
+function normalizeWorkspaceActionPath(path: string): string {
+	const normalized = path.replace(/\/{2,}/g, "/");
+	return normalized.startsWith("/") ? normalized : `/${normalized}`;
+}
+
+/**
+ * 获取工作区操作对话框标题。
+ * @param type 当前操作类型
+ * @returns 标题
+ */
+function getWorkspaceDialogTitle(type: WorkspaceOperationType | null): string {
+	switch (type) {
+		case "create_file":
+			return "新建文件";
+		case "create_directory":
+			return "新建目录";
+		case "copy":
+			return "复制节点";
+		case "move":
+			return "移动节点";
+		case "rename":
+			return "重命名节点";
+		case "delete":
+			return "删除节点";
+		default:
+			return "工作区操作";
+	}
+}
+
+/**
+ * 获取工作区操作按钮文案。
+ * @param type 当前操作类型
+ * @returns 按钮文案
+ */
+function getWorkspaceDialogActionLabel(type: WorkspaceOperationType | null): string {
+	switch (type) {
+		case "create_file":
+			return "创建文件";
+		case "create_directory":
+			return "创建目录";
+		case "copy":
+			return "复制";
+		case "move":
+			return "移动";
+		case "rename":
+			return "重命名";
+		case "delete":
+			return "删除";
+		default:
+			return "确认";
+	}
+}
+
+/**
+ * 获取工作区操作输入框标题。
+ * @param type 当前操作类型
+ * @returns 字段标题
+ */
+function getWorkspaceDialogFieldLabel(type: WorkspaceOperationType | null): string {
+	switch (type) {
+		case "rename":
+			return "新的名称";
+		case "create_file":
+			return "文件路径";
+		case "create_directory":
+			return "目录路径";
+		default:
+			return "目标路径";
+	}
+}
+
+/**
+ * 获取工作区操作输入框占位文案。
+ * @param type 当前操作类型
+ * @returns 占位文本
+ */
+function getWorkspaceDialogPlaceholder(type: WorkspaceOperationType | null): string {
+	switch (type) {
+		case "rename":
+			return "例如 README.md";
+		case "create_file":
+			return "例如 /notes/README.md";
+		case "create_directory":
+			return "例如 /notes/archive";
+		default:
+			return "例如 /copy/README.md";
+	}
+}
+
+/**
+ * 获取工作区操作辅助说明。
+ * @param type 当前操作类型
+ * @returns 提示文案
+ */
+function getWorkspaceDialogHint(type: WorkspaceOperationType | null): string {
+	switch (type) {
+		case "rename":
+			return "仅修改当前节点名称，父目录保持不变。";
+		case "create_file":
+			return "请输入完整工作区绝对路径，系统会创建一个空文件。";
+		case "create_directory":
+			return "请输入完整工作区绝对路径，缺失的父目录会一并创建。";
+		default:
+			return "请输入完整工作区绝对路径。";
+	}
 }
 
 /** Chat 面板参数 */
