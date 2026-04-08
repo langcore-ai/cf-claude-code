@@ -1,5 +1,27 @@
 import type { SessionState, TodoItem } from "../types";
 
+/** Prompt 片段标识 */
+export type PromptSectionId =
+	| "identity"
+	| "workflow"
+	| "start_reminder"
+	| "plan_mode"
+	| "skills"
+	| "end_reminder"
+	| "state"
+	| "compact"
+	| "custom"
+	| "subagent_identity"
+	| "subagent_constraints";
+
+/** Prompt 片段 */
+export interface PromptSection {
+	/** 片段唯一标识 */
+	id: PromptSectionId;
+	/** 片段正文 */
+	content: string;
+}
+
 /** Claude Code 身份提示词 */
 const IDENTITY_PROMPT = "You are Claude Code, Anthropic's official CLI for Claude.";
 
@@ -113,24 +135,48 @@ const PLAN_MODE_PROMPT = [
 	"</system-reminder>",
 ].join("\n");
 
+/** subagent 身份片段 */
+const SUBAGENT_IDENTITY_PROMPT =
+	"You are a fresh-context subagent. Complete the assigned task autonomously and return a concise final summary.";
+
+/** subagent 额外约束 */
+const SUBAGENT_CONSTRAINTS_PROMPT = "Do not delegate to another subagent.";
+
+/**
+ * 统一渲染 prompt 片段。
+ * @param sections 已过滤后的片段
+ * @returns 拼接后的 prompt 文本
+ */
+export function renderPromptSections(sections: PromptSection[]): string {
+	return sections
+		.map((section) => section.content.trim())
+		.filter(Boolean)
+		.join("\n\n");
+}
+
 /**
  * 构建 skills 摘要片段。
  * @param skills 可用 skills
  * @returns prompt 片段
  */
-function buildSkillSection(skills: Array<{ name: string; description: string }>): string {
+function buildSkillSection(skills: Array<{ name: string; description: string }>): PromptSection {
 	if (skills.length === 0) {
-		return "Available skills:\n- none";
+		return {
+			id: "skills",
+			content: "Available skills:\n- none",
+		};
 	}
 
-	return `Available skills:\n${skills.map((skill) => `- ${skill.name}: ${skill.description}`).join("\n")}`;
+	return {
+		id: "skills",
+		content: `Available skills:\n${skills.map((skill) => `- ${skill.name}: ${skill.description}`).join("\n")}`,
+	};
 }
 
 /**
- * 构建 runtime 结束提醒片段。
- * 这里只放 runtime 内部状态相关提示，不引入宿主预检或 IDE 注入。
- * @param session 当前会话
- * @returns reminder 片段
+ * 把 todo 列表渲染成 end reminder 使用的文本。
+ * @param todos Todo 列表
+ * @returns 列表文本
  */
 function buildTodoLines(todos: TodoItem[]): string {
 	return todos
@@ -141,9 +187,19 @@ function buildTodoLines(todos: TodoItem[]): string {
 		.join("\n");
 }
 
-function buildEndReminderSection(session: SessionState, rememberedTodos?: TodoItem[] | null): string {
+/**
+ * 构建 runtime 结束提醒片段。
+ * 这里只放 runtime 内部状态相关提示，不引入宿主预检或 IDE 注入。
+ * @param session 当前会话
+ * @param rememberedTodos 最近 todo memory
+ * @returns reminder 片段
+ */
+function buildEndReminderSection(session: SessionState, rememberedTodos?: TodoItem[] | null): PromptSection {
 	if (session.todos.length === 0 && (!rememberedTodos || rememberedTodos.length === 0)) {
-		return EMPTY_TODO_END_REMINDER_PROMPT;
+		return {
+			id: "end_reminder",
+			content: EMPTY_TODO_END_REMINDER_PROMPT,
+		};
 	}
 
 	const activeTodos = session.todos.length > 0 ? session.todos : (rememberedTodos ?? []);
@@ -157,18 +213,118 @@ function buildEndReminderSection(session: SessionState, rememberedTodos?: TodoIt
 			? "Current todo list is empty, but recent todo memory exists below. Recreate TodoWrite items if the plan is still active."
 			: "There are active todos. Keep TodoWrite synchronized with real progress.";
 
-	return [
-		"<system-reminder>",
-		memoryReminder,
-		"Keep exactly one todo in_progress at a time and mark items completed immediately after finishing them.",
-		"If the plan changed, update TodoWrite immediately instead of waiting for the end of the turn.",
-		session.todos.length === 0 ? "Recent todo memory:" : "Current todos:",
-		todoLines,
-		`${taskReminder}`.trim(),
-		"</system-reminder>",
-	]
-		.filter(Boolean)
-		.join("\n");
+	return {
+		id: "end_reminder",
+		content: [
+			"<system-reminder>",
+			memoryReminder,
+			"Keep exactly one todo in_progress at a time and mark items completed immediately after finishing them.",
+			"If the plan changed, update TodoWrite immediately instead of waiting for the end of the turn.",
+			session.todos.length === 0 ? "Recent todo memory:" : "Current todos:",
+			todoLines,
+			`${taskReminder}`.trim(),
+			"</system-reminder>",
+		]
+			.filter(Boolean)
+			.join("\n"),
+	};
+}
+
+/**
+ * 构建主会话 prompt 片段列表。
+ * 先构造片段，再统一渲染，避免后续逻辑继续散落在 composeMainSystemPrompt 中。
+ * @param input 组合输入
+ * @returns 片段数组
+ */
+export function buildMainPromptSections(input: {
+	customPrompt?: string;
+	skills: Array<{ name: string; description: string }>;
+	hasStatePrompt: boolean;
+	renderedStatePrompt: string;
+	session: SessionState;
+	rememberedTodos?: TodoItem[] | null;
+}): PromptSection[] {
+	const sections: Array<PromptSection | null> = [
+		{
+			id: "identity",
+			content: IDENTITY_PROMPT,
+		},
+		{
+			id: "workflow",
+			content: WORKFLOW_PROMPT,
+		},
+		{
+			id: "start_reminder",
+			content: START_REMINDER_PROMPT,
+		},
+		input.session.mode === "plan"
+			? {
+					id: "plan_mode",
+					content: PLAN_MODE_PROMPT,
+				}
+			: null,
+		buildSkillSection(input.skills),
+		buildEndReminderSection(input.session, input.rememberedTodos),
+		input.hasStatePrompt
+			? {
+					id: "state",
+					content: input.renderedStatePrompt,
+				}
+			: null,
+		input.session.compactSummary
+			? {
+					id: "compact",
+					content: `${COMPACT_PROMPT}\n\nCompacted context:\n${input.session.compactSummary}`,
+				}
+			: null,
+		input.customPrompt?.trim()
+			? {
+					id: "custom",
+					content: `Additional runtime instructions:\n${input.customPrompt.trim()}`,
+				}
+			: null,
+	];
+
+	return sections.filter((section): section is PromptSection => Boolean(section));
+}
+
+/**
+ * 构建子会话 prompt 片段列表。
+ * @param input 组合输入
+ * @returns 片段数组
+ */
+export function buildSubagentPromptSections(input: {
+	skills: Array<{ name: string; description: string }>;
+	hasStatePrompt: boolean;
+	renderedStatePrompt: string;
+}): PromptSection[] {
+	const sections: Array<PromptSection | null> = [
+		{
+			id: "identity",
+			content: IDENTITY_PROMPT,
+		},
+		{
+			id: "subagent_identity",
+			content: SUBAGENT_IDENTITY_PROMPT,
+		},
+		{
+			id: "subagent_constraints",
+			content: SUBAGENT_CONSTRAINTS_PROMPT,
+		},
+		{
+			id: "workflow",
+			content: WORKFLOW_PROMPT,
+		},
+		buildSkillSection(input.skills),
+		input.hasStatePrompt
+			? {
+					id: "state",
+					content: input.renderedStatePrompt,
+				}
+			: null,
+	];
+
+	return sections.filter((section): section is PromptSection => Boolean(section));
 }
 
 /**
@@ -184,19 +340,7 @@ export function composeMainSystemPrompt(input: {
 	session: SessionState;
 	rememberedTodos?: TodoItem[] | null;
 }): string {
-	const sections = [
-		IDENTITY_PROMPT,
-		WORKFLOW_PROMPT,
-		START_REMINDER_PROMPT,
-		input.session.mode === "plan" ? PLAN_MODE_PROMPT : "",
-		buildSkillSection(input.skills),
-		buildEndReminderSection(input.session, input.rememberedTodos),
-		input.hasStatePrompt ? input.renderedStatePrompt : "",
-		input.session.compactSummary ? `${COMPACT_PROMPT}\n\nCompacted context:\n${input.session.compactSummary}` : "",
-		input.customPrompt?.trim() ? `Additional runtime instructions:\n${input.customPrompt.trim()}` : "",
-	].filter(Boolean);
-
-	return sections.join("\n\n");
+	return renderPromptSections(buildMainPromptSections(input));
 }
 
 /**
@@ -210,14 +354,5 @@ export function composeSubagentSystemPrompt(input: {
 	hasStatePrompt: boolean;
 	renderedStatePrompt: string;
 }): string {
-	const sections = [
-		IDENTITY_PROMPT,
-		"You are a fresh-context subagent. Complete the assigned task autonomously and return a concise final summary.",
-		"Do not delegate to another subagent.",
-		WORKFLOW_PROMPT,
-		buildSkillSection(input.skills),
-		input.hasStatePrompt ? input.renderedStatePrompt : "",
-	].filter(Boolean);
-
-	return sections.join("\n\n");
+	return renderPromptSections(buildSubagentPromptSections(input));
 }

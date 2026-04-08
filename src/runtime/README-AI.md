@@ -81,6 +81,10 @@
 - runtime 还新增了 tool-calling 稳定性策略：
   - 任一工具返回错误后，runtime 会自动追加一个内部 `<system-reminder>`，明确告诉模型上一个工具为什么失败、下一次必须修正参数而不是重复同一错误调用
   - 如果模型连续两次以上重复相同的错误工具调用，runtime 会注入更强的重复失败提醒，用来打断无效重试
+- `prompt-composer.ts` 当前已从“直接拼字符串”收敛成“两段式装配”：
+  - 先构建 `PromptSection[]`
+  - 再通过统一 `renderPromptSections(...)` 渲染
+- 当前这样做的目的是把 prompt 的职责、顺序、可选性和测试边界固定下来，避免后续新增 mode / reminder / state prompt 时再次把逻辑散落回 `composeMainSystemPrompt(...)`
 - 当前仍明确不纳入 runtime core 的 prompt 片段：
   - `check-new-topic.prompt.md`
   - `summarize-previous-conversation.prompt.md`
@@ -143,6 +147,7 @@
   - `${namespace}_transcripts`：compact 前的消息快照
   - `${namespace}_subagent_jobs`：subagent job 记录
   - `runtime_todo_memory`：最近一次非空 Todo 快照；字段为 `namespace`、`session_id`、`payload`、`updated_at`
+- 正式迁移文件当前位于 [migrations/0001_runtime_todo_memory.sql](/Users/igmainc/Projects/cf-claude-code/migrations/0001_runtime_todo_memory.sql)，用于把 `runtime_todo_memory` 作为幂等 D1 迁移显式落盘。
 - `runtime_todo_memory` 通过 `(namespace, session_id)` 复合主键隔离不同 runtime 命名空间，只服务 runtime 内部的 Todo 连续性提示，不承担宿主级启动恢复或 project 级任务管理语义。
 - `Bash` / `WebFetch` / `WebSearch` 当前首版不新增 D1 表：
   - Bash 不保留跨请求 shell session，也不持久化最近命令结果

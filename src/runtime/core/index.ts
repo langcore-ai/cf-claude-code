@@ -11,3 +11,12 @@ export { MemoryStateExecutor, WorkspaceStateExecutor, type StateExecutionResult,
 export { SubagentRunner, SUBAGENT_TOOL_NAMES, type SubagentRunnerDependencies } from "./subagent-runner";
 export { MemoryAgentRuntime, DEFAULT_SESSION_CONFIG, type RuntimeDependencies } from "./runtime";
 export { ToolDispatcher } from "./tool-dispatcher";
+export {
+	buildMainPromptSections,
+	buildSubagentPromptSections,
+	composeMainSystemPrompt,
+	composeSubagentSystemPrompt,
+	renderPromptSections,
+	type PromptSection,
+	type PromptSectionId,
+} from "./prompt-composer";
