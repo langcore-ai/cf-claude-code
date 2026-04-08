@@ -1,13 +1,25 @@
 import { nanoid } from "nanoid";
 import { STATE_SYSTEM_PROMPT, STATE_TYPES } from "@cloudflare/shell";
 
-import { InMemorySessionStore, InMemorySubagentStore, InMemoryTranscriptStore, type TranscriptStore } from "../adapters";
+import {
+	InMemorySessionStore,
+	InMemorySubagentStore,
+	InMemoryTodoMemoryStore,
+	InMemoryTranscriptStore,
+	type TranscriptStore,
+} from "../adapters";
 import { autoCompactSession, compactSession, microCompactMessages } from "./compact";
+import { composeMainSystemPrompt, composeSubagentSystemPrompt } from "./prompt-composer";
 import type { StateExecutor } from "./state-executor";
 import { SubagentRunner } from "./subagent-runner";
 import { hasOpenTodos } from "../domain";
 import { InMemorySkillProvider, type SkillProvider } from "../skills";
-import { DEFAULT_TOOLS, type DefaultToolContext, type RuntimeTool } from "../tools";
+import {
+	DEFAULT_TOOLS,
+	PLAN_MODE_ALLOWED_TOOL_NAMES,
+	type DefaultToolContext,
+	type RuntimeTool,
+} from "../tools";
 import { ToolDispatcher } from "./tool-dispatcher";
 import type {
 	AgentEvent,
@@ -22,6 +34,7 @@ import type {
 	SubagentJob,
 	SubagentResult,
 	SubagentStore,
+	TodoMemoryStore,
 	ToolCall,
 	ToolResult,
 } from "../types";
@@ -29,32 +42,12 @@ import { InMemoryWorkspace, type Workspace } from "../workspace";
 
 /** Todo nag 触发阈值 */
 const TODO_NAG_THRESHOLD = 3;
-
-/** 默认运行时行为约束，强调必须通过真实工具完成工作区操作 */
-const DEFAULT_RUNTIME_SYSTEM_PROMPT = [
-	"You are a pragmatic agent runtime assistant.",
-	"",
-	"When a user asks you to inspect, create, modify, rename, move, copy, or delete workspace files, you must use the available tools to do the work.",
-	"Do not answer with pseudo-code, example code, or a description of what you would do instead of actually calling the tool.",
-	"Do not claim that a file was created or updated unless the corresponding tool call succeeded.",
-	"",
-	"When you maintain todos, break the plan into the smallest executable steps.",
-	"Each todo item should describe exactly one concrete action, not a bundle of multiple files, endpoints, dependencies, or UI tasks.",
-	"If a request contains several implementation tasks, represent them as multiple TodoWrite items instead of a single summary item.",
-	"",
-	"For file writes, the path must be a file path such as /README.md or /notes/todo.txt.",
-	"Never use / as a file path because / is the workspace root directory, not a file.",
-	"If the user asks to create a file in the root, translate that into a concrete path such as /README.md.",
-	"",
-	"For state_exec, you must provide a complete code argument whose value is a full async JavaScript function like async () => { ... }.",
-	"Never call state_exec with an empty input or without the code field.",
-	"",
-	"If a tool call fails, inspect the error, correct the arguments, and retry with a fixed call instead of repeating the same invalid input.",
-].join("\n");
+/** 重复相同失败工具调用时，回注更强纠偏提醒所需的最小失败次数 */
+const REPEATED_TOOL_FAILURE_THRESHOLD = 2;
 
 /** 默认会话配置 */
 export const DEFAULT_SESSION_CONFIG: SessionConfig = {
-	systemPrompt: DEFAULT_RUNTIME_SYSTEM_PROMPT,
+	systemPrompt: "",
 	tokenThreshold: 4000,
 	maxTurnsPerMessage: 6,
 };
@@ -83,10 +76,17 @@ export interface RuntimeDependencies {
 	transcriptStore?: TranscriptStore;
 	/** subagent store */
 	subagentStore?: SubagentStore;
+	/** Todo 短期记忆 store */
+	todoMemoryStore?: TodoMemoryStore;
 	/** 结构化 state 执行器 */
 	stateExecutor?: StateExecutor;
 	/** 工具集合 */
 	tools?: RuntimeTool[];
+	/** WebFetch 相关配置 */
+	webFetch?: {
+		/** Jina Reader API Key */
+		jinaApiKey?: string;
+	};
 }
 
 /** shell 官方 state prompt */
@@ -151,6 +151,85 @@ function createSessionController(): SessionController {
 }
 
 /**
+ * 生成工具调用签名，用于识别“同一个工具 + 同一组参数”的重复失败。
+ * @param call 工具调用
+ * @returns 可稳定比较的签名
+ */
+function buildToolCallSignature(call: ToolCall): string {
+	return JSON.stringify({
+		name: call.name,
+		input: call.input,
+	});
+}
+
+/**
+ * 统计当前会话里相同工具调用签名的失败次数。
+ * 这里基于 assistant 的 tool_use 与后续 user tool_result 配对做最小推断。
+ * @param session 当前会话
+ * @param call 当前工具调用
+ * @returns 历史失败次数
+ */
+function countFailedToolCallAttempts(session: SessionState, call: ToolCall): number {
+	const targetSignature = buildToolCallSignature(call);
+	const toolUseSignatureById = new Map<string, string>();
+	let failures = 0;
+
+	for (const message of session.messages) {
+		if (message.role === "assistant") {
+			for (const block of message.content) {
+				if (block.type === "tool_use") {
+					toolUseSignatureById.set(
+						block.id,
+						JSON.stringify({
+							name: block.name,
+							input: block.input,
+						}),
+					);
+				}
+			}
+			continue;
+		}
+
+		for (const block of message.content) {
+			if (block.type !== "tool_result" || !block.isError) {
+				continue;
+			}
+
+			if (toolUseSignatureById.get(block.toolUseId) === targetSignature) {
+				failures += 1;
+			}
+		}
+	}
+
+	return failures;
+}
+
+/**
+ * 构造工具失败后的 runtime 提醒。
+ * 这个提醒只服务下一轮模型纠偏，不直接作为用户可见说明。
+ * @param call 失败的工具调用
+ * @param toolResult 工具结果
+ * @param repeatedFailures 相同调用的历史失败次数
+ * @returns system reminder 文本
+ */
+function buildToolFailureReminder(call: ToolCall, toolResult: ToolResult, repeatedFailures: number): string {
+	const repeatedWarning =
+		repeatedFailures >= REPEATED_TOOL_FAILURE_THRESHOLD
+			? "You have repeated the same invalid tool call multiple times. Do not repeat it again without changing the arguments."
+			: "Do not repeat the same invalid tool call. Change the arguments before retrying.";
+
+	return [
+		"<system-reminder>",
+		`The last tool call failed: ${call.name}.`,
+		`Error: ${toolResult.content}`,
+		"Inspect the error carefully and correct the next tool call instead of describing hypothetical success.",
+		"Ensure required arguments are present and non-empty before retrying.",
+		repeatedWarning,
+		"</system-reminder>",
+	].join("\n");
+}
+
+/**
  * Phase 1 内存态 Agent Runtime。
  * 它先固定 Claude Code 风格的会话循环，再逐步替换存储和工作区后端。
  */
@@ -161,6 +240,7 @@ export class MemoryAgentRuntime implements AgentRuntime {
 	private readonly dispatcher: ToolDispatcher;
 	private readonly transcriptStore: TranscriptStore;
 	private readonly subagentStore: SubagentStore;
+	private readonly todoMemoryStore: TodoMemoryStore;
 	private readonly subagentRunner: SubagentRunner;
 	private readonly controllers = new Map<string, SessionController>();
 	private readonly hasStateExec: boolean;
@@ -172,6 +252,7 @@ export class MemoryAgentRuntime implements AgentRuntime {
 		this.sessionStore = deps.sessionStore ?? new InMemorySessionStore();
 		this.transcriptStore = deps.transcriptStore ?? new InMemoryTranscriptStore();
 		this.subagentStore = deps.subagentStore ?? new InMemorySubagentStore();
+		this.todoMemoryStore = deps.todoMemoryStore ?? new InMemoryTodoMemoryStore();
 		this.workspace = deps.workspace ?? new InMemoryWorkspace("phase-1-runtime");
 		this.skillProvider = deps.skillProvider ?? new InMemorySkillProvider();
 		const tools = deps.tools ?? DEFAULT_TOOLS;
@@ -201,6 +282,7 @@ export class MemoryAgentRuntime implements AgentRuntime {
 		const now = new Date().toISOString();
 		const session: SessionState = {
 			id,
+			mode: input.mode ?? "normal",
 			config: {
 				...DEFAULT_SESSION_CONFIG,
 				...input.config,
@@ -281,8 +363,9 @@ export class MemoryAgentRuntime implements AgentRuntime {
 			const result = await this.deps.aiClient.generateTurn({
 				systemPrompt,
 				messages: session.messages,
-				tools: this.dispatcher.listSchemas(),
+				tools: this.listAvailableToolSchemas(session),
 				config: session.config,
+				modelRole: "main",
 			});
 
 			if (result.stopReason === "tool_use" && result.content.length === 0) {
@@ -303,6 +386,11 @@ export class MemoryAgentRuntime implements AgentRuntime {
 
 			const toolBlocks = result.content.filter((block) => block.type === "tool_use");
 			for (const block of toolBlocks) {
+				const failedAttempts = countFailedToolCallAttempts(session, {
+					id: block.id,
+					name: block.name,
+					input: block.input,
+				});
 				const toolResult = await this.invokeTool(sessionId, {
 					id: block.id,
 					name: block.name,
@@ -327,6 +415,24 @@ export class MemoryAgentRuntime implements AgentRuntime {
 						isError: toolResult.isError ?? false,
 					}),
 				);
+
+				if (toolResult.isError) {
+					session = this.appendMessage(session, "system", [
+						{
+							type: "text",
+							text: buildToolFailureReminder(
+								{
+									id: block.id,
+									name: block.name,
+									input: block.input,
+								},
+								toolResult,
+								failedAttempts + 1,
+							),
+						},
+					]);
+					await this.sessionStore.save(session);
+				}
 
 				if (toolResult.meta?.action === "compact") {
 					const manualCompact = await compactSession(
@@ -385,6 +491,15 @@ export class MemoryAgentRuntime implements AgentRuntime {
 	 */
 	async invokeTool(sessionId: string, call: ToolCall): Promise<ToolResult> {
 		try {
+			const session = await this.requireSession(sessionId);
+			if (!this.isToolAllowedForSession(session, call.name)) {
+				return {
+					toolUseId: call.id,
+					name: call.name,
+					content: `Tool ${call.name} is not available while session mode is ${session.mode}`,
+					isError: true,
+				};
+			}
 			return await this.dispatcher.execute(call, this.createToolContext(sessionId, true));
 		} catch (error) {
 			return {
@@ -582,17 +697,17 @@ export class MemoryAgentRuntime implements AgentRuntime {
 	 */
 	private async buildSystemPrompt(session: SessionState): Promise<string> {
 		const skills = await this.skillProvider.list();
-		const skillSection =
-			skills.length === 0
-				? "Available skills:\n- none"
-				: `Available skills:\n${skills.map((skill) => `- ${skill.name}: ${skill.description}`).join("\n")}`;
-		const stateSection = this.hasStateExec ? `\n\n${RENDERED_STATE_SYSTEM_PROMPT}` : "";
-
-		const compactSection = session.compactSummary
-			? `\n\nCompacted context:\n${session.compactSummary}`
-			: "";
-
-		return `${session.config.systemPrompt}\n\n${skillSection}${stateSection}${compactSection}`;
+		const rememberedTodos = session.todos.length === 0
+			? await this.todoMemoryStore.loadLatestTodos(session.id)
+			: null;
+		return composeMainSystemPrompt({
+			customPrompt: session.config.systemPrompt,
+			skills,
+			hasStatePrompt: this.hasStateExec,
+			renderedStatePrompt: RENDERED_STATE_SYSTEM_PROMPT,
+			session,
+			rememberedTodos,
+		});
 	}
 
 	/**
@@ -602,19 +717,26 @@ export class MemoryAgentRuntime implements AgentRuntime {
 	 */
 	private async buildSubagentSystemPrompt(): Promise<string> {
 		const skills = await this.skillProvider.list();
-		const skillSection =
-			skills.length === 0
-				? "Available skills:\n- none"
-				: `Available skills:\n${skills.map((skill) => `- ${skill.name}: ${skill.description}`).join("\n")}`;
-		const stateSection = this.hasStateExec ? RENDERED_STATE_SYSTEM_PROMPT : "";
+		return composeSubagentSystemPrompt({
+			skills,
+			hasStatePrompt: this.hasStateExec,
+			renderedStatePrompt: RENDERED_STATE_SYSTEM_PROMPT,
+		});
+	}
 
-		return [
-			"You are a fresh-context subagent.",
-			"Complete the assigned task and return a concise summary of findings or work completed.",
-			"Do not delegate to another subagent.",
-			skillSection,
-			stateSection,
-		].join("\n\n");
+	/**
+	 * 根据当前会话模式列出可用工具 schema。
+	 * @param session 当前会话
+	 * @returns 当前可见工具 schema
+	 */
+	private listAvailableToolSchemas(session: SessionState) {
+		if (session.mode !== "plan") {
+			return this.dispatcher.listSchemas();
+		}
+
+		return this.dispatcher
+			.listSchemas()
+			.filter((schema) => PLAN_MODE_ALLOWED_TOOL_NAMES.has(schema.name));
 	}
 
 	/**
@@ -644,6 +766,10 @@ export class MemoryAgentRuntime implements AgentRuntime {
 				snapshot = next;
 				await this.sessionStore.save(next);
 			},
+			saveTodoMemory: async (todos) => {
+				await this.todoMemoryStore.saveLatestTodos(sessionId, todos);
+			},
+			loadTodoMemory: async () => this.todoMemoryStore.loadLatestTodos(sessionId),
 			runSubagent: allowSubagentApis
 				? async (prompt, options) => this.runSubagent(sessionId, prompt, options)
 				: undefined,
@@ -659,7 +785,51 @@ export class MemoryAgentRuntime implements AgentRuntime {
 			executeState: this.deps.stateExecutor
 				? async (code) => this.deps.stateExecutor!.execute(code)
 				: undefined,
+			runPrompt: async (input) => {
+				const response = await this.deps.aiClient.generateTurn({
+					systemPrompt: input.systemPrompt ?? "",
+					messages: [
+						{
+							id: nanoid(),
+							role: "user",
+							content: [{ type: "text", text: input.prompt }],
+							createdAt: new Date().toISOString(),
+						},
+					],
+					tools: [],
+					config: {
+						systemPrompt: "",
+						tokenThreshold: Number.MAX_SAFE_INTEGER,
+						maxTurnsPerMessage: 1,
+					},
+					modelRole: input.modelRole ?? "main",
+				});
+				if (response.stopReason === "tool_use") {
+					throw new Error("Prompt-only inference must not request tools");
+				}
+
+				return response.content
+					.filter((block) => block.type === "text")
+					.map((block) => block.text)
+					.join("\n")
+					.trim();
+			},
+			webFetch: this.deps.webFetch,
 		};
+	}
+
+	/**
+	 * 判断当前会话模式下是否允许调用某个工具。
+	 * @param session 当前会话
+	 * @param toolName 工具名称
+	 * @returns 是否允许
+	 */
+	private isToolAllowedForSession(session: SessionState, toolName: string): boolean {
+		if (session.mode !== "plan") {
+			return true;
+		}
+
+		return PLAN_MODE_ALLOWED_TOOL_NAMES.has(toolName);
 	}
 
 	/**

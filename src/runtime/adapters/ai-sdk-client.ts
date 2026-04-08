@@ -1,7 +1,6 @@
 import type { LanguageModel, ModelMessage, ToolSet } from "ai";
 import { generateText, tool } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
-import { jsonSchema } from "@ai-sdk/provider-utils";
 
 import type {
 	AIClient,
@@ -17,7 +16,12 @@ export interface OpenAiClientConfig {
 	/** API key */
 	apiKey: string;
 	/** 模型名称 */
-	model: string;
+	model: string | {
+		main: string;
+		compact?: string;
+		subagent?: string;
+		lightweight?: string;
+	};
 	/** 可选 baseURL */
 	baseURL?: string;
 }
@@ -62,18 +66,10 @@ export function toAiTools(tools: ToolSchema[]): ToolSet {
 			continue;
 		}
 
-		const fallbackInputSchema =
-			typeof toolSchema.inputSchema === "object" &&
-			toolSchema.inputSchema !== null &&
-			"safeParse" in toolSchema.inputSchema
-				? (toolSchema.inputSchema as never)
-				: (jsonSchema(toolSchema.inputSchema as Record<string, unknown>) as never);
-
 		mapped[toolSchema.name] = tool({
 			description: toolSchema.description,
-			// AI SDK 6 不再接受裸 JSON 对象作为 schema；这里包成 provider-utils 的 Schema，
-			// 以便 tools 在生成与解析阶段都能被正确识别和校验。
-			inputSchema: fallbackInputSchema,
+			// runtime 当前统一使用 zod schema；这里直接透传即可。
+			inputSchema: toolSchema.inputSchema as never,
 			// 实际工具执行仍由 runtime loop 负责；这里提供最小 execute 以符合 AI SDK 官方工具形态。
 			execute: async () => "",
 		}) as ToolSet[string];
@@ -136,9 +132,37 @@ export function toModelTurnResult(output: {
  */
 export class AiSdkClient implements AIClient {
 	/**
-	 * @param model AI SDK 模型实例
+	 * @param models AI SDK 模型实例集合
 	 */
-	constructor(private readonly model: LanguageModel) {}
+	constructor(
+		private readonly models: {
+			main: LanguageModel;
+			compact?: LanguageModel;
+			subagent?: LanguageModel;
+			lightweight?: LanguageModel;
+		},
+	) {}
+
+	/**
+	 * 选择当前调用应使用的模型。
+	 * @param role 模型角色
+	 * @returns 对应模型
+	 */
+	private getModel(role: GenerateTurnInput["modelRole"]): LanguageModel {
+		if (role === "compact" && this.models.compact) {
+			return this.models.compact;
+		}
+
+		if (role === "subagent" && this.models.subagent) {
+			return this.models.subagent;
+		}
+
+		if (role === "lightweight" && this.models.lightweight) {
+			return this.models.lightweight;
+		}
+
+		return this.models.main;
+	}
 
 	/**
 	 * 生成一轮模型输出
@@ -147,7 +171,7 @@ export class AiSdkClient implements AIClient {
 	 */
 	async generateTurn(input: GenerateTurnInput): Promise<ModelTurnResult> {
 		const result = await generateText({
-			model: this.model,
+			model: this.getModel(input.modelRole),
 			system: input.systemPrompt,
 			messages: toAiMessages(input.messages),
 			tools: toAiTools(input.tools),
@@ -168,5 +192,16 @@ export function createOpenAiClient(config: OpenAiClientConfig): AiSdkClient {
 		baseURL: config.baseURL,
 	});
 
-	return new AiSdkClient(provider(config.model));
+	if (typeof config.model === "string") {
+		return new AiSdkClient({
+			main: provider(config.model),
+		});
+	}
+
+	return new AiSdkClient({
+		main: provider(config.model.main),
+		compact: config.model.compact ? provider(config.model.compact) : undefined,
+		subagent: config.model.subagent ? provider(config.model.subagent) : undefined,
+		lightweight: config.model.lightweight ? provider(config.model.lightweight) : undefined,
+	});
 }

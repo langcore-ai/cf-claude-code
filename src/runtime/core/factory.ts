@@ -3,9 +3,11 @@ import type { SqlSource } from "@cloudflare/shell";
 import {
 	D1SessionStore,
 	D1SubagentStore,
+	D1TodoMemoryStore,
 	D1TranscriptStore,
 	InMemorySessionStore,
 	InMemorySubagentStore,
+	InMemoryTodoMemoryStore,
 	InMemoryTranscriptStore,
 } from "../adapters";
 import { MemoryStateExecutor, WorkspaceStateExecutor } from "./state-executor";
@@ -22,6 +24,8 @@ export interface CreateMemoryRuntimeOptions {
 	files?: Record<string, string>;
 	skills?: InMemorySkillSeed[];
 	tools?: RuntimeTool[];
+	/** Jina Reader API Key */
+	jinaApiKey?: string;
 }
 
 /** durable runtime 配置 */
@@ -38,6 +42,8 @@ export interface CreateDurableRuntimeOptions {
 	workspaceName: string;
 	skills?: InMemorySkillSeed[];
 	tools?: RuntimeTool[];
+	/** Jina Reader API Key */
+	jinaApiKey?: string;
 }
 
 /**
@@ -55,8 +61,12 @@ export function createMemoryRuntime(options: CreateMemoryRuntimeOptions): Memory
 		sessionStore: new InMemorySessionStore(),
 		transcriptStore: new InMemoryTranscriptStore(),
 		subagentStore: new InMemorySubagentStore(),
+		todoMemoryStore: new InMemoryTodoMemoryStore(),
 		stateExecutor: new MemoryStateExecutor(workspace),
 		tools: options.tools ?? DEFAULT_TOOLS,
+		webFetch: {
+			jinaApiKey: options.jinaApiKey,
+		},
 	};
 
 	return new MemoryAgentRuntime(deps);
@@ -98,8 +108,14 @@ export function createDurableRuntime(options: CreateDurableRuntimeOptions): Memo
 		subagentStore: new D1SubagentStore(options.sql, {
 			namespace: options.namespace,
 		}),
+		todoMemoryStore: new D1TodoMemoryStore(options.sql, {
+			namespace: options.namespace,
+		}),
 		stateExecutor: new WorkspaceStateExecutor(workspace),
 		tools: options.tools ?? DEFAULT_TOOLS,
+		webFetch: {
+			jinaApiKey: options.jinaApiKey,
+		},
 	};
 
 	return new MemoryAgentRuntime(deps);

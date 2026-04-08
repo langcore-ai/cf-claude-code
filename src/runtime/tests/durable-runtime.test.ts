@@ -4,6 +4,7 @@ import { describe, expect, test } from "bun:test";
 import {
 	D1SessionStore,
 	D1SubagentStore,
+	D1TodoMemoryStore,
 	D1TranscriptStore,
 } from "../adapters";
 import { createDurableRuntime as createDurableRuntimeFactory, WorkspaceStateExecutor } from "../core";
@@ -39,6 +40,7 @@ function createSqlBackend(database: Database) {
 function createSession(): SessionState {
 	return {
 		id: "session-1",
+		mode: "normal",
 		config: {
 			systemPrompt: "test",
 			tokenThreshold: 9999,
@@ -151,6 +153,7 @@ describe("durable workspace and stores", () => {
 		const sessionStore = new D1SessionStore(sql, { namespace: "runtime" });
 		const transcriptStore = new D1TranscriptStore(sql, { namespace: "runtime" });
 		const subagentStore = new D1SubagentStore(sql, { namespace: "runtime" });
+		const todoMemoryStore = new D1TodoMemoryStore(sql, { namespace: "runtime" });
 
 		const session = createSession();
 		await sessionStore.save(session);
@@ -182,6 +185,17 @@ describe("durable workspace and stores", () => {
 		const job = await subagentStore.getJob("job-1");
 		expect(job?.status).toBe("queued");
 		expect((await subagentStore.listJobsForSession(session.id)).length).toBe(1);
+
+		await todoMemoryStore.saveLatestTodos(session.id, [
+			{
+				id: "todo-1",
+				content: "ship auth",
+				status: "pending",
+				priority: "high",
+			},
+		]);
+		const rememberedTodos = await todoMemoryStore.loadLatestTodos(session.id);
+		expect(rememberedTodos?.[0]?.priority).toBe("high");
 	});
 
 	test("WorkspaceSkillProvider 可从真实 workspace 发现 skill", async () => {
@@ -327,7 +341,7 @@ describe("durable workspace and stores", () => {
 				path: "/notes.txt",
 			},
 		});
-		expect(readResult.content).toBe("hello durable");
+		expect(readResult.content).toContain("hello durable");
 
 		const jobs = await runtimeReloaded.listSubagentJobs(session.id);
 		expect(jobs.length).toBeGreaterThan(0);

@@ -5,14 +5,29 @@ import type { AIClient, Message, SessionConfig, SessionState } from "../types";
 const RECENT_TOOL_RESULTS_TO_KEEP = 3;
 
 /** continuity compact 的 system prompt */
-const CONTINUITY_COMPACT_SYSTEM_PROMPT = [
-	"You summarize agent sessions for continuity.",
-	"Preserve only the details needed to continue work correctly.",
-	"Include:",
-	"1) completed work",
-	"2) current workspace and task state",
-	"3) key decisions or constraints",
-	"4) unfinished work and recommended next steps",
+const CONTINUITY_COMPACT_SYSTEM_PROMPT =
+	"You are Claude Code's continuity summarizer. Produce a precise implementation-focused summary that can be treated as authoritative context for continuing the same task without re-reading the entire conversation.";
+
+/** continuity compact 的 task prompt */
+const CONTINUITY_COMPACT_TASK_PROMPT = [
+	"Your task is to create a detailed summary of the conversation so far, paying close attention to the user's explicit requests and your previous actions.",
+	"This summary should preserve the current goal, completed work, unfinished work, file/tool context, runtime state, important user corrections, and the next useful step so implementation can continue without losing momentum.",
+	"",
+	"Before providing your final summary, wrap your analysis in <analysis> tags to organize your thoughts and ensure you've covered all necessary points.",
+	"Then emit the final result in <summary> tags.",
+	"",
+	"Your summary should include the following sections:",
+	"1. Current Goal",
+	"2. Completed Work",
+	"3. Remaining Work",
+	"4. Files, Tools, and Evidence",
+	"5. Current Runtime State",
+	"6. Important User Feedback",
+	"7. Risks or Open Questions",
+	"8. Optional Next Step",
+	"",
+	"Be precise and thorough. Include concrete paths, tool names, and constraints when they matter.",
+	"Focus on continuity for future implementation work, not on narrative storytelling.",
 ].join("\n");
 
 /** compact acknowledgement 文本 */
@@ -162,7 +177,12 @@ export function createCompactedMessages(transcriptRef: string, summary: string):
 			content: [
 				{
 					type: "text",
-					text: `[Conversation compressed. Transcript: ${transcriptRef}]\n\n${summary}`,
+					text: [
+						`[Conversation compacted. Transcript ref: ${transcriptRef}]`,
+						"Treat the following summary as authoritative continuity context.",
+						"",
+						summary,
+					].join("\n"),
 				},
 			],
 		},
@@ -207,6 +227,24 @@ export async function summarizeForContinuity(input: {
 			: input.session.todos
 					.map((todo) => `- ${todo.id} [${todo.status}] ${todo.content}${todo.activeForm ? ` <- ${todo.activeForm}` : ""}`)
 					.join("\n");
+	const currentWork =
+		input.session.messages
+			.slice(-8)
+			.map((message) => {
+				const text = message.content
+					.map((block) => {
+						if (block.type === "text") {
+							return block.text;
+						}
+						if (block.type === "tool_use") {
+							return `[tool_use:${block.name}] ${JSON.stringify(block.input)}`;
+						}
+						return `[tool_result${block.isError ? ":error" : ""}] ${block.content}`;
+					})
+					.join("\n");
+				return `${message.role}: ${text}`;
+			})
+			.join("\n\n") || "No recent messages.";
 
 	const response = await input.aiClient.generateTurn({
 		systemPrompt: CONTINUITY_COMPACT_SYSTEM_PROMPT,
@@ -219,11 +257,16 @@ export async function summarizeForContinuity(input: {
 					{
 						type: "text",
 						text: [
+							CONTINUITY_COMPACT_TASK_PROMPT,
+							"",
 							`Transcript ref: ${input.transcriptRef}`,
+							`Mode: ${input.session.mode}`,
 							`Todos:\n${todoLines}`,
 							`Tasks:\n${taskLines}`,
+							input.session.compactSummary ? `Previous compact summary:\n${input.session.compactSummary}` : "Previous compact summary: none",
+							`Recent work:\n${currentWork}`,
 							"Conversation to summarize:",
-							JSON.stringify(input.messages),
+							serializeMessagesForCompact(input.messages),
 						].join("\n\n"),
 					},
 				],
@@ -231,6 +274,7 @@ export async function summarizeForContinuity(input: {
 		],
 		tools: [],
 		config: createCompactConfig(input.session.config),
+		modelRole: "compact",
 	});
 
 	if (response.stopReason === "tool_use") {
@@ -243,7 +287,7 @@ export async function summarizeForContinuity(input: {
 		.join("\n")
 		.trim();
 
-	return summary || "No summary available.";
+	return extractCompactSummary(summary) || "No summary available.";
 }
 
 /**
@@ -256,4 +300,47 @@ function createCompactConfig(config: SessionConfig): SessionConfig {
 		...config,
 		maxTurnsPerMessage: 1,
 	};
+}
+
+/**
+ * 将消息历史序列化为更稳定的 compact 输入文本。
+ * 相比直接 JSON.stringify，这里保留角色、块类型与关键字段，便于模型生成可恢复摘要。
+ * @param messages 会话消息
+ * @returns 序列化文本
+ */
+function serializeMessagesForCompact(messages: Message[]): string {
+	return messages
+		.map((message, index) => {
+			const content = message.content
+				.map((block) => {
+					if (block.type === "text") {
+						return `text: ${block.text}`;
+					}
+					if (block.type === "tool_use") {
+						return `tool_use(${block.name}): ${JSON.stringify(block.input)}`;
+					}
+					return `tool_result(${block.toolUseId})${block.isError ? " [error]" : ""}: ${block.content}`;
+				})
+				.join("\n");
+			return `#${index + 1} ${message.role}\n${content}`;
+		})
+		.join("\n\n");
+}
+
+/**
+ * 从模型返回中提取真正的 compact summary。
+ * reverse prompt 会要求输出 <analysis> 与 <summary>；runtime 只持久化 summary 本体。
+ * @param text 模型原始文本
+ * @returns 去标签后的 summary
+ */
+function extractCompactSummary(text: string): string {
+	const summaryMatch = text.match(/<summary>([\s\S]*?)<\/summary>/i);
+	if (summaryMatch?.[1]) {
+		return summaryMatch[1].trim();
+	}
+
+	return text
+		.replace(/<analysis>[\s\S]*?<\/analysis>/gi, "")
+		.replace(/<\/?summary>/gi, "")
+		.trim();
 }

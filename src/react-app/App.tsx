@@ -3,6 +3,7 @@ import { CopyIcon, FileUpIcon, LoaderCircleIcon, MoveRightIcon, PanelLeftIcon, P
 import { useLocalStorage } from "react-use";
 
 import { ChatMessageCard } from "@/components/chat-message-card";
+import { FileWorkspace } from "@/components/file-workspace";
 import { RuntimeStatePanel, type RuntimePanelTab } from "@/components/runtime-state-panel";
 import { Button } from "@/components/ui/button";
 import {
@@ -120,6 +121,9 @@ function App() {
 	const [workspaceTree, setWorkspaceTree] = useState<WorkspaceTreeNode[]>([]);
 	const [selectedFileContent, setSelectedFileContent] = useState("");
 	const [isLoadingSelectedFile, setIsLoadingSelectedFile] = useState(false);
+	const [isSavingSelectedFile, setIsSavingSelectedFile] = useState(false);
+	const [selectedFileError, setSelectedFileError] = useState<string | null>(null);
+	const [hasUnsavedSelectedFileChanges, setHasUnsavedSelectedFileChanges] = useState(false);
 	const [isUploadDialogOpen, setIsUploadDialogOpen] = useState(false);
 	const [activeWorkspaceDialog, setActiveWorkspaceDialog] = useState<WorkspaceOperationType | null>(null);
 	const [isUploadingFiles, setIsUploadingFiles] = useState(false);
@@ -222,6 +226,10 @@ function App() {
 	 * 创建一个新 session，并切到该 session。
 	 */
 	async function handleCreateSession() {
+		if (!confirmDiscardSelectedFileChanges()) {
+			return;
+		}
+
 		try {
 			setRuntimeError(null);
 			setIsCreatingSession(true);
@@ -232,6 +240,8 @@ function App() {
 			setSelectedWorkspaceNode(null);
 			setSelectedFilePath(null);
 			setSelectedFileContent("");
+			setSelectedFileError(null);
+			setHasUnsavedSelectedFileChanges(false);
 			setActiveRuntimeTab("messages");
 			await refreshWorkspaceTree(response.sessionId);
 		} catch (error) {
@@ -258,6 +268,8 @@ function App() {
 				setSelectedWorkspaceNode(null);
 				setSelectedFilePath(null);
 				setSelectedFileContent("");
+				setSelectedFileError(null);
+				setHasUnsavedSelectedFileChanges(false);
 				setActiveRuntimeTab("messages");
 				await refreshWorkspaceTree(latestSession.id);
 				return;
@@ -270,6 +282,8 @@ function App() {
 			setSelectedWorkspaceNode(null);
 			setSelectedFilePath(null);
 			setSelectedFileContent("");
+			setSelectedFileError(null);
+			setHasUnsavedSelectedFileChanges(false);
 			setActiveRuntimeTab("messages");
 			await refreshWorkspaceTree(created.sessionId);
 		} catch (error) {
@@ -284,6 +298,10 @@ function App() {
 	 * @param sessionId 会话 id
 	 */
 	async function handleSelectSession(sessionId: string) {
+		if (!confirmDiscardSelectedFileChanges()) {
+			return;
+		}
+
 		try {
 			setRuntimeError(null);
 			setIsRefreshingSession(true);
@@ -294,6 +312,8 @@ function App() {
 			setSelectedWorkspaceNode(null);
 			setSelectedFilePath(null);
 			setSelectedFileContent("");
+			setSelectedFileError(null);
+			setHasUnsavedSelectedFileChanges(false);
 			setActiveRuntimeTab("messages");
 			await refreshWorkspaceTree(response.sessionId);
 		} catch (error) {
@@ -370,17 +390,45 @@ function App() {
 		if (!selectedSessionId) {
 			return;
 		}
+		if (selectedFilePath && selectedFilePath !== path && !confirmDiscardSelectedFileChanges()) {
+			return;
+		}
 
 		try {
 			setRuntimeError(null);
 			setIsLoadingSelectedFile(true);
+			setSelectedFileError(null);
 			const response = await readWorkspaceFile(selectedSessionId, path);
 			setSelectedFilePath(response.path);
 			setSelectedFileContent(response.content);
+			setHasUnsavedSelectedFileChanges(false);
 		} catch (error) {
-			setRuntimeError(error instanceof Error ? error.message : "Failed to read workspace file");
+			setSelectedFileError(error instanceof Error ? error.message : "Failed to read workspace file");
 		} finally {
 			setIsLoadingSelectedFile(false);
+		}
+	}
+
+	/**
+	 * 保存当前选中文件。
+	 * @param content 最新文件内容
+	 */
+	async function handleSaveSelectedFile(content: string) {
+		if (!selectedSessionId || !selectedFilePath) {
+			return;
+		}
+
+		try {
+			setSelectedFileError(null);
+			setIsSavingSelectedFile(true);
+			await writeWorkspaceFile(selectedSessionId, selectedFilePath, content);
+			setSelectedFileContent(content);
+			setHasUnsavedSelectedFileChanges(false);
+		} catch (error) {
+			setSelectedFileError(error instanceof Error ? error.message : "Failed to save workspace file");
+			throw error;
+		} finally {
+			setIsSavingSelectedFile(false);
 		}
 	}
 
@@ -491,6 +539,18 @@ function App() {
 		setRuntimeError(null);
 		setActiveWorkspaceDialog(type);
 		setWorkspaceActionValue(buildWorkspaceOperationDefaultValue(type, selectedWorkspaceNode));
+	}
+
+	/**
+	 * 切换文件或离开预览前，确认是否放弃未保存修改。
+	 * @returns 是否允许继续
+	 */
+	function confirmDiscardSelectedFileChanges(): boolean {
+		if (!hasUnsavedSelectedFileChanges) {
+			return true;
+		}
+
+		return window.confirm("当前 Markdown 文件还有未保存修改，是否放弃这些更改？");
 	}
 
 	/**
@@ -713,6 +773,10 @@ function App() {
 											key={workspaceTreeKey}
 											nodes={workspaceTree}
 											onSelectPath={(path, node) => {
+												if ((node.type !== "file" || selectedFilePath !== path) && !confirmDiscardSelectedFileChanges()) {
+													return;
+												}
+
 												setSelectedWorkspaceNode({
 													path,
 													name: node.name,
@@ -721,6 +785,8 @@ function App() {
 												if (node.type !== "file") {
 													setSelectedFilePath(null);
 													setSelectedFileContent("");
+													setSelectedFileError(null);
+													setHasUnsavedSelectedFileChanges(false);
 													return;
 												}
 												void handleSelectFile(path);
@@ -765,7 +831,14 @@ function App() {
 												</p>
 											</div>
 											<Button
-												onClick={() => setSelectedFilePath(null)}
+												onClick={() => {
+													if (!confirmDiscardSelectedFileChanges()) {
+														return;
+													}
+													setSelectedFilePath(null);
+													setSelectedFileError(null);
+													setHasUnsavedSelectedFileChanges(false);
+												}}
 												size="icon"
 												variant="ghost"
 											>
@@ -773,11 +846,15 @@ function App() {
 											</Button>
 										</div>
 										<div className="min-h-0 flex-1 p-5">
-											<ScrollArea className="h-full w-full rounded-2xl border border-border bg-muted/30" type="always">
-												<pre className="min-h-full whitespace-pre-wrap break-words p-4 text-sm leading-6 text-foreground">
-													<code>{isLoadingSelectedFile ? "// loading file..." : selectedFileContent}</code>
-												</pre>
-											</ScrollArea>
+											<FileWorkspace
+												content={selectedFileContent}
+												errorMessage={selectedFileError}
+												isLoading={isLoadingSelectedFile}
+												isSaving={isSavingSelectedFile}
+												onDirtyChange={setHasUnsavedSelectedFileChanges}
+												onSave={handleSaveSelectedFile}
+												path={selectedFilePath ?? "/"}
+											/>
 										</div>
 									</section>
 								</ResizablePanel>

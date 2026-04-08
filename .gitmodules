@@ -1,0 +1,3 @@
+[submodule "external/claude-code-reverse"]
+	path = external/claude-code-reverse
+	url = https://git.igmainc.work/igmainc/claude-code-reverse.git

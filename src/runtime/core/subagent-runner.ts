@@ -21,15 +21,16 @@ export const SUBAGENT_TOOL_NAMES = new Set([
 	"read_file",
 	"write_file",
 	"list_files",
+	"glob",
+	"grep",
+	"edit",
+	"multi_edit",
+	"WebFetch",
+	"WebSearch",
 	"load_skill",
 	"list_skill_files",
 	"read_skill_file",
 	"TodoWrite",
-	"state_exec",
-	"task_create",
-	"task_list",
-	"task_get",
-	"task_update",
 	"compact",
 ]);
 
@@ -223,6 +224,7 @@ export class SubagentRunner {
 					tokenThreshold: Number.MAX_SAFE_INTEGER,
 					maxTurnsPerMessage: 1,
 				},
+				modelRole: "subagent",
 			});
 			finalContent = response.content;
 			messages.push({

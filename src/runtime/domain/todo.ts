@@ -1,4 +1,4 @@
-import type { TodoItem, TodoStatus } from "../types";
+import type { TodoItem, TodoPriority, TodoStatus } from "../types";
 
 /** Todo 上限 */
 const TODO_LIMIT = 20;
@@ -13,6 +13,8 @@ export interface TodoWriteInput {
 		content: string;
 		/** 状态 */
 		status: TodoStatus;
+		/** 优先级 */
+		priority?: TodoPriority;
 		/** 进行中任务的主动描述 */
 		activeForm?: string;
 	}>;
@@ -45,6 +47,7 @@ export function applyTodoWrite(input: TodoWriteInput): TodoItem[] {
 			id: item.id,
 			content: item.content.trim(),
 			status: item.status,
+			priority: item.priority,
 			activeForm: item.activeForm?.trim() || undefined,
 		};
 	});
@@ -72,8 +75,9 @@ export function renderTodos(items: TodoItem[]): string {
 			in_progress: "[>]",
 			completed: "[x]",
 		}[item.status];
+		const priority = item.priority ? ` (${item.priority})` : "";
 		const suffix = item.status === "in_progress" && item.activeForm ? ` <- ${item.activeForm}` : "";
-		return `${marker} #${item.id}: ${item.content}${suffix}`;
+		return `${marker} #${item.id}: ${item.content}${priority}${suffix}`;
 	});
 
 	const done = items.filter((item) => item.status === "completed").length;

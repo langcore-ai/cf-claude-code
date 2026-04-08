@@ -16,6 +16,7 @@ class StubAiClient implements AIClient {
 function createSession(messages: SessionState["messages"]): SessionState {
 	return {
 		id: "session-1",
+		mode: "normal",
 		config: {
 			systemPrompt: "test",
 			tokenThreshold: 10,
@@ -69,11 +70,23 @@ describe("compact", () => {
 		expect(estimateTokenCount(session.messages)).toBeGreaterThan(session.config.tokenThreshold);
 		let summarized = false;
 		const result = await autoCompactSession(session, {
-			aiClient: new StubAiClient(async () => {
+			aiClient: new StubAiClient(async (input) => {
 				summarized = true;
+				expect(input.modelRole).toBe("compact");
+				expect(input.systemPrompt).toContain("continuity summarizer");
+				expect(
+					input.messages[0]?.content[0] && "text" in input.messages[0].content[0]
+						? input.messages[0].content[0].text
+						: "",
+				).toContain("Current Goal");
+				expect(
+					input.messages[0]?.content[0] && "text" in input.messages[0].content[0]
+						? input.messages[0].content[0].text
+						: "",
+				).toContain("Important User Feedback");
 				return {
 					stopReason: "end_turn",
-					content: [{ type: "text", text: "continuity summary" }],
+					content: [{ type: "text", text: "<analysis>thinking</analysis>\n<summary>continuity summary</summary>" }],
 				};
 			}),
 			transcriptStore: new InMemoryTranscriptStore(),
@@ -91,9 +104,37 @@ describe("compact", () => {
 		expect(messages[0]?.content[0]).toMatchObject({
 			type: "text",
 		});
+		expect(messages[0]?.content[0] && "text" in messages[0].content[0] ? messages[0].content[0].text : "").toContain(
+			"Treat the following summary as authoritative continuity context.",
+		);
 		expect(messages[1]?.content[0]).toMatchObject({
 			type: "text",
 			text: "Understood. I will continue from the continuity summary.",
 		});
+	});
+
+	test("plan 模式 compact 后仍保留 plan mode", async () => {
+		const session = {
+			...createSession([
+				{
+					id: "1",
+					role: "user" as const,
+					createdAt: new Date().toISOString(),
+					content: [{ type: "text" as const, text: "x".repeat(200) }],
+				},
+			]),
+			mode: "plan" as const,
+		};
+
+		const result = await autoCompactSession(session, {
+			aiClient: new StubAiClient(async () => ({
+				stopReason: "end_turn",
+				content: [{ type: "text", text: "<summary>continuity summary</summary>" }],
+			})),
+			transcriptStore: new InMemoryTranscriptStore(),
+		});
+
+		expect(result.session.mode).toBe("plan");
+		expect(result.session.compactSummary).toBe("continuity summary");
 	});
 });

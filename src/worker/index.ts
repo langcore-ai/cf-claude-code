@@ -23,6 +23,8 @@ export interface WorkerBindings {
 	OPENAI_API_KEY: string;
 	/** OpenAI 兼容接口 Base URL */
 	OPENAI_BASE_URL: string;
+	/** Jina Reader API Key */
+	JINA_API_KEY?: string;
 }
 
 /** 默认 R2 对象前缀 */
@@ -46,6 +48,7 @@ interface CreateSessionBody {
 	systemPrompt?: string;
 	tokenThreshold?: number;
 	maxTurnsPerMessage?: number;
+	mode?: "normal" | "plan";
 }
 
 /** 发送消息请求体 */
@@ -126,6 +129,7 @@ async function listFallbackMemorySessions(): Promise<SessionState[]> {
 function toSessionDto(session: SessionState) {
 	return {
 		id: session.id,
+		mode: session.mode,
 		config: session.config,
 		messages: session.messages,
 		todos: session.todos,
@@ -199,6 +203,13 @@ function parseCreateSessionBody(body: unknown): CreateSessionBody {
 			throw new Error("maxTurnsPerMessage must be a number");
 		}
 		parsed.maxTurnsPerMessage = payload.maxTurnsPerMessage;
+	}
+
+	if (payload.mode !== undefined) {
+		if (payload.mode !== "normal" && payload.mode !== "plan") {
+			throw new Error("mode must be normal or plan");
+		}
+		parsed.mode = payload.mode;
 	}
 
 	return parsed;
@@ -353,6 +364,7 @@ export function createWorkerRuntime(env: WorkerBindings, sessionId: string): Mem
 			inlineThreshold: DEFAULT_R2_INLINE_THRESHOLD,
 			namespace: "runtime",
 			workspaceName: buildWorkspaceName(sessionId),
+			jinaApiKey: env.JINA_API_KEY,
 		});
 	} catch (error) {
 		// 本地 dev 场景下，Cloudflare 绑定模拟偶尔会触发 `Invalid value used as weak map key`
@@ -369,6 +381,7 @@ export function createWorkerRuntime(env: WorkerBindings, sessionId: string): Mem
 			const runtime = createMemoryRuntime({
 				aiClient,
 				workspaceName: buildWorkspaceName(sessionId),
+				jinaApiKey: env.JINA_API_KEY,
 			});
 			FALLBACK_MEMORY_RUNTIMES.set(sessionId, runtime);
 			return runtime;
@@ -395,6 +408,7 @@ export function createApp<TBindings extends object = WorkerBindings>(
 			stage: "phase-4a-worker-api",
 			runtime: "durable-runtime",
 			r2Enabled: Boolean((c.env as WorkerBindings).RUNTIME_BUCKET),
+			jinaEnabled: Boolean((c.env as WorkerBindings).JINA_API_KEY),
 			r2Prefix: DEFAULT_R2_PREFIX,
 			r2InlineThreshold: DEFAULT_R2_INLINE_THRESHOLD,
 		}),
@@ -407,6 +421,7 @@ export function createApp<TBindings extends object = WorkerBindings>(
 			const runtime = runtimeFactory(c.env, sessionId);
 			await runtime.startSession({
 				sessionId,
+				mode: body.mode,
 				config: {
 					systemPrompt: body.systemPrompt ?? DEFAULT_SESSION_CONFIG.systemPrompt,
 					tokenThreshold: body.tokenThreshold ?? DEFAULT_SESSION_CONFIG.tokenThreshold,

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { tool } from "ai";
-import { jsonSchema } from "@ai-sdk/provider-utils";
+import { z } from "zod";
 
 import { ToolDispatcher } from "../core";
 import { createRuntimeTool } from "../tools";
@@ -10,9 +10,10 @@ describe("ToolDispatcher", () => {
 		const tools = [
 			createRuntimeTool(
 				"echo",
+				"core",
 				tool({
 					description: "echo",
-					inputSchema: jsonSchema({ type: "object" }) as never,
+					inputSchema: z.object({ value: z.string() }),
 					execute: async () => "",
 				}),
 				async (call) => ({
@@ -39,6 +40,42 @@ describe("ToolDispatcher", () => {
 		);
 
 		expect(result.content).toBe("hello");
+	});
+
+	test("可按分组过滤 schema", () => {
+		const dispatcher = new ToolDispatcher([
+			createRuntimeTool(
+				"core_echo",
+				"core",
+				tool({
+					description: "core",
+					inputSchema: z.object({}),
+					execute: async () => "",
+				}),
+				async () => ({
+					toolUseId: "1",
+					name: "core_echo",
+					content: "ok",
+				}),
+			),
+			createRuntimeTool(
+				"extended_echo",
+				"extended",
+				tool({
+					description: "extended",
+					inputSchema: z.object({}),
+					execute: async () => "",
+				}),
+				async () => ({
+					toolUseId: "2",
+					name: "extended_echo",
+					content: "ok",
+				}),
+			),
+		]);
+
+		expect(dispatcher.listSchemas(["core"]).map((schema) => schema.name)).toEqual(["core_echo"]);
+		expect(dispatcher.listSchemas(["extended"]).map((schema) => schema.name)).toEqual(["extended_echo"]);
 	});
 
 	test("未知工具直接报错", async () => {

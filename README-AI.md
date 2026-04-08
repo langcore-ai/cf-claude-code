@@ -34,6 +34,7 @@
 
 - `src/worker/index.ts`：当前 Worker 主链路与 workspace 文件系统 API 入口，已接入 durable runtime。
 - `src/react-app/`：当前 playground 前端入口，已落地 sidebar + chat / preview 的页面框架、真实 workspace 文件树、文件预览、上传文件模态框、文件树中的新建文件 / 新建目录 / rename / move / copy / delete 操作，以及基于 session snapshot 的结构化 runtime 观察视图（messages / todos / tasks / runtime）。
+- `src/components/file-workspace/`：文件编辑/预览模块，当前已支持 Markdown 所见即所得编辑与手动保存，并预留图片/PDF 只读预览扩展位。
 - `src/runtime/`：当前 runtime 核心实现目录，已具备 runtime core + durable 接线。
 - `external/learn-claude-code/`：Claude Code 风格 harness 的教学拆解参考。
 - `external/my-claude-code/`：内存态 runtime 的代码参考。
@@ -41,7 +42,13 @@
 
 ## 4. 核心逻辑（Core Logic）
 
+- 需要明确分层：runtime core 关注的是 agent loop、prompt composer、tool-calling 协议、tool dispatch、tool result 回注、compact、subagent、mode 切换和模型路由，而不是某个具体工具本身。
+- 因此 `Bash`、`WebFetch`、`WebSearch` 这类工具能力不应被视为 core 本体；它们只是挂接在 tool-calling 主链路上的能力插件。
 - 主项目当前已经实现 Phase 3B runtime 逻辑：会话循环、工具调度、continuity compact、richer Todo、依赖型 task board、最小 subagent、真实 `state_exec`、memory/durable workspace、memory/workspace merged skills、D1-backed session/transcript/subagent stores。
+- 当前项目额外补齐了 edge 适配版 `Bash`、`WebFetch`、`WebSearch` 作为工具能力，用于验证和扩展 tool-calling 主链路。
+- `WebFetch` 当前通过 Jina Reader 获取页面文本，只向模型暴露少量高层提取参数；鉴权和抓取策略由 runtime 内部控制。Worker 宿主侧使用环境变量 `JINA_API_KEY` 透传访问密钥。
+- `WebSearch` 当前通过 Jina Search 获取结果，只向模型暴露查询语义相关参数；provider、返回格式和鉴权由 runtime 内部控制。
+- 本地开发环境需要在 `.env` 中提供 `JINA_API_KEY`；仓库根目录提供 `.env.example` 作为示例配置。
 - runtime 默认 prompt 当前会强约束涉及工作区读写时必须调用真实工具，不能只输出待执行代码或虚构“已创建/已修改”的结果。
 - 目标架构是：
   - runtime core：session、tool loop、todo、skills、tasks、subagent、protocol
@@ -85,5 +92,6 @@
 ## 8. 相关文档（Related Docs）
 
 - `./README.md`
+- `./TODO-claude-code-reverse-compare.md`
 - `./external/learn-claude-code/README-AI.md`
 - `./external/my-claude-code/README-AI.md`

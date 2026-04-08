@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { z } from "zod";
 
 import { toAiMessages, toAiTools, toModelTurnResult } from "../adapters";
 
@@ -24,7 +25,7 @@ describe("ai-sdk-client helpers", () => {
 			{
 				name: "read_file",
 				description: "read",
-				inputSchema: { type: "object" },
+				inputSchema: z.object({ path: z.string() }),
 			},
 		]);
 
@@ -37,12 +38,16 @@ describe("ai-sdk-client helpers", () => {
 				{
 					toolCallId: "tool-1",
 					toolName: "read_file",
-					args: { path: "/README.md" },
+					input: { path: "/README.md" },
 				},
 			],
 		});
 
 		expect(result.stopReason).toBe("tool_use");
-		expect(result.content[0]).toMatchObject({ type: "tool_use", name: "read_file" });
+		expect(result.content[0]).toMatchObject({
+			type: "tool_use",
+			name: "read_file",
+			input: { path: "/README.md" },
+		});
 	});
 });

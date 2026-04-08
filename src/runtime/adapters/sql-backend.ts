@@ -1,6 +1,6 @@
 import type { SqlBackend, SqlParam, SqlSource } from "@cloudflare/shell";
 
-import type { SessionState, SubagentJob, SessionStore, SubagentStore, Message } from "../types";
+import type { Message, SessionState, SessionStore, SubagentJob, SubagentStore, TodoItem, TodoMemoryStore } from "../types";
 import type { TranscriptStore } from "./transcript-store";
 
 /** 运行时 SQL 命名空间配置 */
@@ -278,6 +278,79 @@ export class D1SubagentStore implements SubagentStore {
 				session_id TEXT NOT NULL,
 				payload TEXT NOT NULL,
 				updated_at TEXT NOT NULL
+			)`,
+		);
+		this.initialized = true;
+	}
+}
+
+/**
+ * D1-backed TodoMemoryStore。
+ * 这里仅保留最近一次非空 Todo 快照，作为 runtime 的短期 Todo 记忆。
+ */
+export class D1TodoMemoryStore implements TodoMemoryStore {
+	private readonly sql: RuntimeSqlBackend;
+	private readonly tableName: string;
+	private readonly namespace: string;
+	private initialized = false;
+
+	/**
+	 * @param source SQL 数据源
+	 * @param options namespace 配置
+	 */
+	constructor(source: SqlSource, options: SqlNamespaceOptions = {}) {
+		this.sql = adaptSqlSource(source);
+		this.tableName = "runtime_todo_memory";
+		this.namespace = normalizeNamespace(options.namespace);
+	}
+
+	/**
+	 * 保存最近一次 Todo 快照
+	 * @param sessionId 会话 id
+	 * @param todos Todo 列表
+	 */
+	async saveLatestTodos(sessionId: string, todos: TodoItem[]): Promise<void> {
+		await this.ensureInit();
+		await this.sql.run(
+			`INSERT OR REPLACE INTO ${this.tableName} (namespace, session_id, payload, updated_at) VALUES (?, ?, ?, ?)`,
+			this.namespace,
+			sessionId,
+			JSON.stringify(todos),
+			new Date().toISOString(),
+		);
+	}
+
+	/**
+	 * 读取最近一次 Todo 快照
+	 * @param sessionId 会话 id
+	 * @returns Todo 列表
+	 */
+	async loadLatestTodos(sessionId: string): Promise<TodoItem[] | null> {
+		await this.ensureInit();
+		const rows = await this.sql.query<{ payload: string }>(
+			`SELECT payload FROM ${this.tableName} WHERE namespace = ? AND session_id = ?`,
+			this.namespace,
+			sessionId,
+		);
+		const payload = rows[0]?.payload;
+		return payload ? JSON.parse(payload) : null;
+	}
+
+	/**
+	 * 初始化表结构
+	 */
+	private async ensureInit(): Promise<void> {
+		if (this.initialized) {
+			return;
+		}
+
+		await this.sql.run(
+			`CREATE TABLE IF NOT EXISTS ${this.tableName} (
+				namespace TEXT NOT NULL,
+				session_id TEXT NOT NULL,
+				payload TEXT NOT NULL,
+				updated_at TEXT NOT NULL,
+				PRIMARY KEY (namespace, session_id)
 			)`,
 		);
 		this.initialized = true;

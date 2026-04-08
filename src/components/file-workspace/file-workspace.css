@@ -1,0 +1,133 @@
+.markdown-editor-content {
+	color: var(--foreground);
+	font-size: 0.95rem;
+	line-height: 1.75;
+}
+
+.markdown-editor-content > :first-child {
+	margin-top: 0;
+}
+
+.markdown-editor-content > :last-child {
+	margin-bottom: 0;
+}
+
+.markdown-editor-content h1,
+.markdown-editor-content h2,
+.markdown-editor-content h3,
+.markdown-editor-content h4,
+.markdown-editor-content h5,
+.markdown-editor-content h6 {
+	margin-top: 1.35em;
+	margin-bottom: 0.65em;
+	font-weight: 700;
+	line-height: 1.25;
+	color: var(--foreground);
+}
+
+.markdown-editor-content h1 {
+	font-size: 1.875rem;
+}
+
+.markdown-editor-content h2 {
+	font-size: 1.5rem;
+}
+
+.markdown-editor-content h3 {
+	font-size: 1.25rem;
+}
+
+.markdown-editor-content p,
+.markdown-editor-content ul,
+.markdown-editor-content ol,
+.markdown-editor-content blockquote,
+.markdown-editor-content pre,
+.markdown-editor-content table {
+	margin: 0.85em 0;
+}
+
+.markdown-editor-content ul,
+.markdown-editor-content ol {
+	padding-left: 1.5rem;
+}
+
+.markdown-editor-content ul {
+	list-style: disc;
+}
+
+.markdown-editor-content ol {
+	list-style: decimal;
+}
+
+.markdown-editor-content li {
+	margin: 0.35em 0;
+}
+
+.markdown-editor-content blockquote {
+	border-left: 3px solid color-mix(in oklab, var(--border) 75%, transparent);
+	padding-left: 1rem;
+	color: var(--muted-foreground);
+}
+
+.markdown-editor-content a {
+	color: var(--primary);
+	text-decoration: underline;
+	text-underline-offset: 0.18em;
+}
+
+.markdown-editor-content code {
+	border: 1px solid color-mix(in oklab, var(--border) 85%, transparent);
+	background: color-mix(in oklab, var(--muted) 80%, transparent);
+	border-radius: 0.375rem;
+	padding: 0.15rem 0.35rem;
+	font-size: 0.875em;
+}
+
+.markdown-editor-content pre {
+	overflow-x: auto;
+	border: 1px solid color-mix(in oklab, var(--border) 85%, transparent);
+	background: color-mix(in oklab, var(--muted) 80%, transparent);
+	border-radius: 0.875rem;
+	padding: 0.9rem 1rem;
+}
+
+.markdown-editor-content pre code {
+	border: none;
+	background: transparent;
+	padding: 0;
+}
+
+.markdown-editor-content hr {
+	margin: 1.4rem 0;
+	border: 0;
+	border-top: 1px solid color-mix(in oklab, var(--border) 85%, transparent);
+}
+
+.markdown-editor-content img {
+	max-width: 100%;
+	border-radius: 0.875rem;
+}
+
+.markdown-editor-content table {
+	width: 100%;
+	border-collapse: collapse;
+	overflow: hidden;
+	border: 1px solid color-mix(in oklab, var(--border) 85%, transparent);
+	border-radius: 0.875rem;
+}
+
+.markdown-editor-content th,
+.markdown-editor-content td {
+	border-bottom: 1px solid color-mix(in oklab, var(--border) 85%, transparent);
+	padding: 0.65rem 0.8rem;
+	text-align: left;
+}
+
+.markdown-editor-content th {
+	background: color-mix(in oklab, var(--muted) 80%, transparent);
+	font-weight: 600;
+}
+
+.markdown-editor-content .ProseMirror-selectednode {
+	outline: 2px solid color-mix(in oklab, var(--ring) 70%, transparent);
+}

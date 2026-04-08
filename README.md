@@ -2,7 +2,15 @@
 
 基于 Cloudflare Workers / Pages / `@cloudflare/shell` 构建的边缘态 Agent Runtime 项目。
 
-当前仓库已经完成 Phase 0 工程换轨，并完成了 Phase 3B 的 Runtime Core 与结构化执行面接线：`src/runtime/` 内已经具备会话主循环、工具调度、真实 `state_exec`、memory/durable workspace、memory/workspace merged skills、richer Todo、依赖型 task board、高保真 continuity compact、最小 subagent、D1-backed durable state 与测试覆盖。本 README 的重点仍然是定义为什么要做这个内存态 Runtime、要复现 Claude Code 的哪些核心能力、准备怎么实现，以及整个项目的宏观 TODO。
+当前仓库已经完成 Phase 0 工程换轨，并完成了 Phase 3B 的 Runtime Core 与结构化执行面接线：`src/runtime/` 内已经具备会话主循环、工具调度、真实 `state_exec`、memory/durable workspace、memory/workspace merged skills、richer Todo、依赖型 task board、高保真 continuity compact、最小 subagent、D1-backed durable state 与测试覆盖；同时已补齐 edge 适配版 `Bash`、`WebFetch`、`WebSearch` 这批 Claude Code 核心工具，其中 `WebFetch` 当前通过 Jina Reader 获取页面文本，`WebSearch` 当前通过 Jina Search 获取搜索结果，二者都只向模型暴露高层语义参数。本 README 的重点仍然是定义为什么要做这个内存态 Runtime、要复现 Claude Code 的哪些核心能力、准备怎么实现，以及整个项目的宏观 TODO。
+
+本地开发需要准备 `.env`，至少包含：
+
+- `OPENAI_API_KEY`
+- `OPENAI_BASE_URL`
+- `JINA_API_KEY`
+
+仓库提供了 [.env.example](/Users/igmainc/Projects/cf-claude-code/.env.example) 作为示例；Worker 部署时需要把这些值对应配置为 Cloudflare 环境变量或 secret，其中 `JINA_API_KEY` 用于 `WebFetch` / `WebSearch` 的 Jina 托管能力。
 
 ## 为什么要实现内存态 Agent Runtime
 

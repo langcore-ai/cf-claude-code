@@ -1,4 +1,4 @@
-import {  type z } from "zod";
+import type { z } from "zod";
 
 /** 会话内可用的消息角色 */
 export type MessageRole = "system" | "user" | "assistant";
@@ -59,11 +59,14 @@ export interface ToolSchema {
 	name: string;
 	/** 工具说明 */
 	description: string;
-	/** JSON Schema 风格的输入定义 */
-	inputSchema: Record<string, unknown> | z.ZodObject;
+	/** Zod 风格的输入定义 */
+	inputSchema: z.ZodTypeAny;
 	/** 可选的 AI SDK 官方工具对象；仅在 adapter 边界使用 */
 	sdkTool?: unknown;
 }
+
+/** runtime 内部模型角色 */
+export type ModelRole = "main" | "compact" | "subagent" | "lightweight";
 
 /** 一次工具调用请求 */
 export interface ToolCall {
@@ -102,6 +105,8 @@ export interface GenerateTurnInput {
 	tools: ToolSchema[];
 	/** 当前会话配置 */
 	config: SessionConfig;
+	/** 当前调用使用的模型角色 */
+	modelRole?: ModelRole;
 }
 
 /** 模型返回结果 */
@@ -131,16 +136,23 @@ export interface SessionConfig {
 	maxTurnsPerMessage: number;
 }
 
+/** 会话运行模式 */
+export type SessionMode = "normal" | "plan";
+
 /** 启动会话时的输入 */
 export interface StartSessionInput {
 	/** 会话 id；不传则自动生成 */
 	sessionId?: string;
+	/** 会话模式；默认 normal */
+	mode?: SessionMode;
 	/** 会话配置 */
 	config: SessionConfig;
 }
 
 /** Todo 状态 */
 export type TodoStatus = "pending" | "in_progress" | "completed";
+/** Todo 优先级 */
+export type TodoPriority = "high" | "medium" | "low";
 
 /** Todo 项 */
 export interface TodoItem {
@@ -150,6 +162,8 @@ export interface TodoItem {
 	content: string;
 	/** 当前状态 */
 	status: TodoStatus;
+	/** 可选优先级 */
+	priority?: TodoPriority;
 	/** 进行中任务的主动描述 */
 	activeForm?: string;
 }
@@ -227,6 +241,8 @@ export interface SubagentResult {
 export interface SessionState {
 	/** 会话唯一标识 */
 	id: string;
+	/** 会话运行模式 */
+	mode: SessionMode;
 	/** 会话配置 */
 	config: SessionConfig;
 	/** 消息历史 */
@@ -314,6 +330,22 @@ export interface SessionStore {
 	 * @param sessionId 会话 id
 	 */
 	delete(sessionId: string): Promise<void>;
+}
+
+/** Todo 短期记忆存储接口 */
+export interface TodoMemoryStore {
+	/**
+	 * 保存最近一次非空 Todo 快照
+	 * @param sessionId 会话 id
+	 * @param todos Todo 列表
+	 */
+	saveLatestTodos(sessionId: string, todos: TodoItem[]): Promise<void>;
+	/**
+	 * 读取最近一次 Todo 快照
+	 * @param sessionId 会话 id
+	 * @returns Todo 列表；不存在时返回 null
+	 */
+	loadLatestTodos(sessionId: string): Promise<TodoItem[] | null>;
 }
 
 /** Subagent 任务存储接口 */

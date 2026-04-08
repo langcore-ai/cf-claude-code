@@ -1,5 +1,5 @@
 import type { ToolCall, ToolResult, ToolSchema } from "../types";
-import type { DefaultToolContext, RuntimeTool } from "../tools";
+import type { DefaultToolContext, RuntimeTool, ToolGroup } from "../tools";
 
 /**
  * 工具调度器。
@@ -19,15 +19,20 @@ export class ToolDispatcher {
 
 	/**
 	 * 列出全部 schema
+	 * @param groups 可选工具分组过滤
 	 * @returns 工具 schema 列表
 	 */
-	listSchemas(): ToolSchema[] {
-		return [...this.tools.values()].map((tool) => ({
+	listSchemas(groups?: ToolGroup[]): ToolSchema[] {
+		const allowAll = !groups || groups.length === 0;
+		const allowedGroups = new Set(groups ?? []);
+		return [...this.tools.values()]
+			.filter((tool) => allowAll || allowedGroups.has(tool.group))
+			.map((tool) => ({
 			name: tool.name,
 			description: tool.description ?? "",
-			inputSchema: tool.inputSchema as Record<string, unknown>,
+			inputSchema: tool.inputSchema as never,
 			sdkTool: tool,
-		}));
+			}));
 	}
 
 	/**
