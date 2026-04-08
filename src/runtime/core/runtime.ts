@@ -4,6 +4,7 @@ import { STATE_SYSTEM_PROMPT, STATE_TYPES } from "@cloudflare/shell";
 import {
 	InMemorySessionStore,
 	InMemorySubagentStore,
+	InMemoryTaskStore,
 	InMemoryTodoMemoryStore,
 	InMemoryTranscriptStore,
 	type TranscriptStore,
@@ -35,6 +36,7 @@ import type {
 	SubagentJob,
 	SubagentResult,
 	SubagentStore,
+	TaskStore,
 	TodoMemoryStore,
 	ToolCall,
 	ToolResult,
@@ -77,6 +79,8 @@ export interface RuntimeDependencies {
 	subagentStore?: SubagentStore;
 	/** Todo 短期记忆 store */
 	todoMemoryStore?: TodoMemoryStore;
+	/** Task 独立持久化 store */
+	taskStore?: TaskStore;
 	/** 结构化 state 执行器 */
 	stateExecutor?: StateExecutor;
 	/** 工具集合 */
@@ -214,6 +218,7 @@ export class MemoryAgentRuntime implements AgentRuntime {
 	private readonly dispatcher: ToolDispatcher;
 	private readonly transcriptStore: TranscriptStore;
 	private readonly subagentStore: SubagentStore;
+	private readonly taskStore: TaskStore;
 	private readonly todoMemoryStore: TodoMemoryStore;
 	private readonly subagentRunner: SubagentRunner;
 	private readonly controllers = new Map<string, SessionController>();
@@ -226,6 +231,7 @@ export class MemoryAgentRuntime implements AgentRuntime {
 		this.sessionStore = deps.sessionStore ?? new InMemorySessionStore();
 		this.transcriptStore = deps.transcriptStore ?? new InMemoryTranscriptStore();
 		this.subagentStore = deps.subagentStore ?? new InMemorySubagentStore();
+		this.taskStore = deps.taskStore ?? new InMemoryTaskStore();
 		this.todoMemoryStore = deps.todoMemoryStore ?? new InMemoryTodoMemoryStore();
 		this.workspace = deps.workspace ?? new InMemoryWorkspace("phase-1-runtime");
 		this.skillProvider = deps.skillProvider ?? new InMemorySkillProvider();
@@ -270,6 +276,7 @@ export class MemoryAgentRuntime implements AgentRuntime {
 		};
 
 		await this.sessionStore.save(session);
+		await this.taskStore.saveTasks(session.id, session.tasks);
 		const controller = createSessionController();
 		this.controllers.set(id, controller);
 		controller.push(this.createEvent(id, "session_started"));
@@ -558,7 +565,8 @@ export class MemoryAgentRuntime implements AgentRuntime {
 	 * @returns 会话列表
 	 */
 	async listSessions(): Promise<SessionState[]> {
-		return this.sessionStore.list();
+		const sessions = await this.sessionStore.list();
+		return Promise.all(sessions.map((session) => this.hydrateSessionTasks(session)));
 	}
 
 	/**
@@ -730,6 +738,19 @@ export class MemoryAgentRuntime implements AgentRuntime {
 				};
 				snapshot = next;
 				await this.sessionStore.save(next);
+				await this.taskStore.saveTasks(sessionId, next.tasks);
+			},
+			loadTasks: async () => this.taskStore.loadTasks(sessionId),
+			saveTasks: async (tasks) => {
+				const current = await this.requireSession(sessionId);
+				const next = {
+					...current,
+					tasks,
+					updatedAt: new Date().toISOString(),
+				};
+				snapshot = next;
+				await this.taskStore.saveTasks(sessionId, tasks);
+				await this.sessionStore.save(next);
 			},
 			saveTodoMemory: async (todos) => {
 				await this.todoMemoryStore.saveLatestTodos(sessionId, todos);
@@ -807,7 +828,29 @@ export class MemoryAgentRuntime implements AgentRuntime {
 		if (!session) {
 			throw new Error(`Session not found: ${sessionId}`);
 		}
-		return session;
+		return this.hydrateSessionTasks(session);
+	}
+
+	/**
+	 * 用独立 TaskStore 中的最新快照覆盖 session 内嵌 task。
+	 * 这样可以保持 Worker/API 的兼容返回结构，同时把 task 的真实持久化边界迁移到独立表。
+	 * @param session 原始会话快照
+	 * @returns 已补齐 task 的会话快照
+	 */
+	private async hydrateSessionTasks(session: SessionState): Promise<SessionState> {
+		const persistedTasks = await this.taskStore.loadTasks(session.id);
+		if (!persistedTasks) {
+			// 兼容旧会话：此前 task 仍内嵌在 session payload 中。
+			// 第一次读到旧数据时回填独立 TaskStore，后续再统一走独立表。
+			if (session.tasks.length > 0) {
+				await this.taskStore.saveTasks(session.id, session.tasks);
+			}
+			return session;
+		}
+		return {
+			...session,
+			tasks: persistedTasks,
+		};
 	}
 
 	/**

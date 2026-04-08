@@ -348,6 +348,27 @@ export interface TodoMemoryStore {
 	loadLatestTodos(sessionId: string): Promise<TodoItem[] | null>;
 }
 
+/** Task 独立持久化存储接口 */
+export interface TaskStore {
+	/**
+	 * 保存会话当前 task 快照
+	 * @param sessionId 会话 id
+	 * @param tasks task 列表
+	 */
+	saveTasks(sessionId: string, tasks: RuntimeTask[]): Promise<void>;
+	/**
+	 * 读取会话当前 task 快照
+	 * @param sessionId 会话 id
+	 * @returns task 列表；不存在时返回 null
+	 */
+	loadTasks(sessionId: string): Promise<RuntimeTask[] | null>;
+	/**
+	 * 删除会话的 task 快照
+	 * @param sessionId 会话 id
+	 */
+	deleteTasks(sessionId: string): Promise<void>;
+}
+
 /** Subagent 任务存储接口 */
 export interface SubagentStore {
 	/**

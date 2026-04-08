@@ -4,6 +4,7 @@ import { describe, expect, test } from "bun:test";
 import {
 	D1SessionStore,
 	D1SubagentStore,
+	D1TaskStore,
 	D1TodoMemoryStore,
 	D1TranscriptStore,
 } from "../adapters";
@@ -153,6 +154,7 @@ describe("durable workspace and stores", () => {
 		const sessionStore = new D1SessionStore(sql, { namespace: "runtime" });
 		const transcriptStore = new D1TranscriptStore(sql, { namespace: "runtime" });
 		const subagentStore = new D1SubagentStore(sql, { namespace: "runtime" });
+		const taskStore = new D1TaskStore(sql, { namespace: "runtime" });
 		const todoMemoryStore = new D1TodoMemoryStore(sql, { namespace: "runtime" });
 
 		const session = createSession();
@@ -185,6 +187,20 @@ describe("durable workspace and stores", () => {
 		const job = await subagentStore.getJob("job-1");
 		expect(job?.status).toBe("queued");
 		expect((await subagentStore.listJobsForSession(session.id)).length).toBe(1);
+
+		await taskStore.saveTasks(session.id, [
+			{
+				id: "task-1",
+				title: "ship auth",
+				status: "in_progress",
+				blockedBy: [],
+				blocks: [],
+				createdAt: new Date().toISOString(),
+				updatedAt: new Date().toISOString(),
+			},
+		]);
+		const persistedTasks = await taskStore.loadTasks(session.id);
+		expect(persistedTasks?.[0]?.status).toBe("in_progress");
 
 		await todoMemoryStore.saveLatestTodos(session.id, [
 			{

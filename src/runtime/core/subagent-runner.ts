@@ -15,6 +15,12 @@ import type {
 
 /** 子 agent 最大回合数 */
 const DEFAULT_SUBAGENT_MAX_TURNS = 24;
+/** 子 agent 最大连续错误工具调用次数 */
+const DEFAULT_SUBAGENT_MAX_CONSECUTIVE_TOOL_ERRORS = 2;
+/** 子 agent summary 最大长度 */
+const SUBAGENT_SUMMARY_LIMIT = 4_000;
+/** 空 summary 的规范化回退文本 */
+const EMPTY_SUBAGENT_SUMMARY = "Subagent finished without a usable final summary.";
 
 /** 子 agent 可见工具名 */
 export const SUBAGENT_TOOL_NAMES = new Set([
@@ -27,9 +33,6 @@ export const SUBAGENT_TOOL_NAMES = new Set([
 	"multi_edit",
 	"WebFetch",
 	"WebSearch",
-	"load_skill",
-	"list_skill_files",
-	"read_skill_file",
 	"TodoWrite",
 	"compact",
 ]);
@@ -50,6 +53,14 @@ export interface SubagentRunnerDependencies {
 	emit(event: AgentEvent): void;
 }
 
+/** 归一化后的 subagent 任务 */
+interface NormalizedSubagentTask {
+	/** 简短任务描述 */
+	description: string;
+	/** 子任务 prompt */
+	prompt: string;
+}
+
 /**
  * 从 assistant 内容块中提取最终可读摘要。
  * @param content assistant 输出块
@@ -62,7 +73,44 @@ function extractSummary(content: AssistantBlock[]): string {
 		.join("\n")
 		.trim();
 
-	return summary || "(no summary)";
+	if (!summary) {
+		return EMPTY_SUBAGENT_SUMMARY;
+	}
+
+	if (summary.length <= SUBAGENT_SUMMARY_LIMIT) {
+		return summary;
+	}
+
+	return `${summary.slice(0, SUBAGENT_SUMMARY_LIMIT)}\n... summary truncated`;
+}
+
+/**
+ * 规范化 subagent 任务输入。
+ * @param prompt 原始子任务 prompt
+ * @param options 可选参数
+ * @returns 归一化后的任务
+ */
+function normalizeSubagentTask(
+	prompt: string,
+	options?: { description?: string },
+): NormalizedSubagentTask {
+	const trimmedPrompt = prompt.trim();
+	const fallbackDescription = trimmedPrompt.split(/\s+/).slice(0, 5).join(" ").trim() || "subagent task";
+	const description = (options?.description?.trim() || fallbackDescription).slice(0, 80);
+
+	return {
+		description,
+		prompt: trimmedPrompt,
+	};
+}
+
+/**
+ * 统计当前批次工具结果中的错误数。
+ * @param results 当前轮工具结果
+ * @returns 错误数量
+ */
+function countToolErrors(results: Array<{ isError?: boolean }>): number {
+	return results.filter((result) => result.isError).length;
 }
 
 /**
@@ -93,13 +141,14 @@ export class SubagentRunner {
 		prompt: string,
 		options?: { description?: string; config?: Pick<SessionConfig, "maxTurnsPerMessage"> },
 	): Promise<SubagentResult> {
+		const task = normalizeSubagentTask(prompt, options);
 		const now = new Date().toISOString();
 		const job: SubagentJob = {
 			id: nanoid(),
 			sessionId,
 			mode: "sync",
-			description: options?.description,
-			prompt,
+			description: task.description,
+			prompt: task.prompt,
 			status: "running",
 			turnCount: 0,
 			messageCount: 1,
@@ -118,7 +167,7 @@ export class SubagentRunner {
 		});
 
 		try {
-			const result = await this.executeLoop(sessionId, prompt, options?.config?.maxTurnsPerMessage);
+			const result = await this.executeLoop(sessionId, task, options?.config?.maxTurnsPerMessage);
 			const completedJob: SubagentJob = {
 				...job,
 				status: "completed",
@@ -175,13 +224,14 @@ export class SubagentRunner {
 		prompt: string,
 		options?: { description?: string },
 	): Promise<SubagentJob> {
+		const task = normalizeSubagentTask(prompt, options);
 		const now = new Date().toISOString();
 		const job: SubagentJob = {
 			id: nanoid(),
 			sessionId,
 			mode: "async",
-			description: options?.description,
-			prompt,
+			description: task.description,
+			prompt: task.prompt,
 			status: "queued",
 			turnCount: 0,
 			messageCount: 0,
@@ -195,25 +245,26 @@ export class SubagentRunner {
 	/**
 	 * 执行子会话工具循环
 	 * @param sessionId 父会话 id
-	 * @param prompt 子任务 prompt
+	 * @param task 归一化后的子任务
 	 * @param maxTurns 可选最大回合数
 	 * @returns 摘要和元信息
 	 */
 	private async executeLoop(
 		sessionId: string,
-		prompt: string,
+		task: NormalizedSubagentTask,
 		maxTurns = DEFAULT_SUBAGENT_MAX_TURNS,
 	): Promise<SubagentResult> {
 		const messages: Message[] = [
 			{
 				id: nanoid(),
 				role: "user",
-				content: [{ type: "text", text: prompt }],
+				content: [{ type: "text", text: task.prompt }],
 				createdAt: new Date().toISOString(),
 			},
 		];
 
-		let finalContent: AssistantBlock[] = [{ type: "text", text: "(no summary)" }];
+		let finalContent: AssistantBlock[] = [{ type: "text", text: EMPTY_SUBAGENT_SUMMARY }];
+		let consecutiveToolErrors = 0;
 		for (let turn = 0; turn < maxTurns; turn += 1) {
 			const response = await this.deps.aiClient.generateTurn({
 				systemPrompt: await this.deps.buildSystemPrompt(),
@@ -249,20 +300,36 @@ export class SubagentRunner {
 
 			const results = [];
 			for (const block of toolBlocks) {
-				const result = await this.dispatcher.execute(
-					{
-						id: block.id,
+				let result;
+				try {
+					result = await this.dispatcher.execute(
+						{
+							id: block.id,
+							name: block.name,
+							input: block.input,
+						} as ToolCall,
+						this.deps.createToolContext(sessionId),
+					);
+				} catch (error) {
+					result = {
+						toolUseId: block.id,
 						name: block.name,
-						input: block.input,
-					} as ToolCall,
-					this.deps.createToolContext(sessionId),
-				);
+						content: error instanceof Error ? error.message : "Unknown subagent tool error",
+						isError: true,
+					};
+				}
 				results.push({
 					type: "tool_result" as const,
 					toolUseId: result.toolUseId,
 					content: result.content,
 					isError: result.isError,
 				});
+			}
+
+			const errorCount = countToolErrors(results);
+			consecutiveToolErrors = errorCount > 0 ? consecutiveToolErrors + 1 : 0;
+			if (consecutiveToolErrors > DEFAULT_SUBAGENT_MAX_CONSECUTIVE_TOOL_ERRORS) {
+				throw new Error(`Subagent repeated failing tool calls for task: ${task.description}`);
 			}
 
 			messages.push({

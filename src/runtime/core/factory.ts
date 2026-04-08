@@ -3,10 +3,12 @@ import type { SqlSource } from "@cloudflare/shell";
 import {
 	D1SessionStore,
 	D1SubagentStore,
+	D1TaskStore,
 	D1TodoMemoryStore,
 	D1TranscriptStore,
 	InMemorySessionStore,
 	InMemorySubagentStore,
+	InMemoryTaskStore,
 	InMemoryTodoMemoryStore,
 	InMemoryTranscriptStore,
 } from "../adapters";
@@ -61,6 +63,7 @@ export function createMemoryRuntime(options: CreateMemoryRuntimeOptions): Memory
 		sessionStore: new InMemorySessionStore(),
 		transcriptStore: new InMemoryTranscriptStore(),
 		subagentStore: new InMemorySubagentStore(),
+		taskStore: new InMemoryTaskStore(),
 		todoMemoryStore: new InMemoryTodoMemoryStore(),
 		stateExecutor: new MemoryStateExecutor(workspace),
 		tools: options.tools ?? DEFAULT_TOOLS,
@@ -106,6 +109,9 @@ export function createDurableRuntime(options: CreateDurableRuntimeOptions): Memo
 			namespace: options.namespace,
 		}),
 		subagentStore: new D1SubagentStore(options.sql, {
+			namespace: options.namespace,
+		}),
+		taskStore: new D1TaskStore(options.sql, {
 			namespace: options.namespace,
 		}),
 		todoMemoryStore: new D1TodoMemoryStore(options.sql, {

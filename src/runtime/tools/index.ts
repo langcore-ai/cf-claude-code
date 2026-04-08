@@ -21,6 +21,10 @@ export interface DefaultToolContext {
 	getSession(): Promise<SessionState>;
 	/** 覆写当前会话 */
 	updateSession(updater: (session: SessionState) => SessionState): Promise<void>;
+	/** 读取当前会话的独立 task 快照 */
+	loadTasks?(): Promise<SessionState["tasks"] | null>;
+	/** 保存当前会话的独立 task 快照 */
+	saveTasks?(tasks: SessionState["tasks"]): Promise<void>;
 	/** 保存最近一次非空 Todo 快照 */
 	saveTodoMemory?(todos: SessionState["todos"]): Promise<void>;
 	/** 读取最近一次 Todo 快照 */
@@ -1219,7 +1223,7 @@ export function createCoreTools(): RuntimeTool[] {
 			"core",
 			tool({
 				description:
-					"Launch a general-purpose stateless subagent in fresh context. Provide a complete prompt and a short description. The subagent returns only its final summary, which is generally trusted.",
+					"Launch a general-purpose stateless subagent in fresh context for independent, multi-step work. Use it for research or autonomous execution that can be summarized cleanly. Do not use it for simple single-file reads or small grep/read tasks. Provide a complete prompt and a short description. The subagent returns only its final concise summary, which is generally trusted.",
 				inputSchema: z.object({
 					description: z.string().describe("A short summary of the delegated task"),
 					prompt: z.string().describe("The full task prompt for the subagent"),
@@ -1246,6 +1250,7 @@ export function createCoreTools(): RuntimeTool[] {
 						jobId: result.jobId,
 						turnCount: result.turnCount,
 						messageCount: result.messageCount,
+						description: String(call.input.description ?? ""),
 						subagentType,
 					},
 				};
@@ -1256,7 +1261,7 @@ export function createCoreTools(): RuntimeTool[] {
 			"core",
 			tool({
 				description:
-					"Launch a fresh-context subagent for complex research or multi-step work. The subagent is stateless and only returns a final summary, so provide a complete task description.",
+					"Launch a fresh-context stateless subagent for complex research or autonomous multi-step work. Do not use it for simple single-file reads or small grep/read tasks. The subagent only returns a concise final summary, so provide a complete task description and whether it should research or make changes.",
 				inputSchema: z.object({
 					prompt: z.string(),
 					description: z.string().optional(),
@@ -1277,6 +1282,7 @@ export function createCoreTools(): RuntimeTool[] {
 						jobId: result.jobId,
 						turnCount: result.turnCount,
 						messageCount: result.messageCount,
+						description: call.input.description ? String(call.input.description) : undefined,
 					},
 				};
 			},
@@ -1517,10 +1523,15 @@ export function createExtendedTools(): RuntimeTool[] {
 					title: String(call.input.title ?? ""),
 					description: call.input.description ? String(call.input.description) : undefined,
 				});
-				await context.updateSession((session) => ({
-					...session,
-					tasks: [...session.tasks, task],
-				}));
+				const tasks = context.loadTasks ? ((await context.loadTasks()) ?? []) : (await context.getSession()).tasks;
+				if (context.saveTasks) {
+					await context.saveTasks([...tasks, task]);
+				} else {
+					await context.updateSession((session) => ({
+						...session,
+						tasks: [...session.tasks, task],
+					}));
+				}
 				return {
 					toolUseId: call.id,
 					name: call.name,
@@ -1536,12 +1547,12 @@ export function createExtendedTools(): RuntimeTool[] {
 				inputSchema: z.object({}),
 			}),
 			async (call, context) => {
-				const session = await context.getSession();
+				const tasks = context.loadTasks ? ((await context.loadTasks()) ?? []) : (await context.getSession()).tasks;
 				return {
 					toolUseId: call.id,
 					name: call.name,
 					content:
-						session.tasks
+						tasks
 							.map((task) => {
 								const marker = {
 									open: "[ ]",
@@ -1570,21 +1581,27 @@ export function createExtendedTools(): RuntimeTool[] {
 				}),
 			}),
 			async (call, context) => {
-				await context.updateSession((session) => ({
-					...session,
-					tasks: updateTask(session.tasks, {
-						id: String(call.input.id ?? ""),
-						title: call.input.title ? String(call.input.title) : undefined,
-						description: call.input.description ? String(call.input.description) : undefined,
-						status: call.input.status as SessionState["tasks"][number]["status"] | undefined,
-						addBlockedBy: Array.isArray(call.input.addBlockedBy)
-							? call.input.addBlockedBy.map((value) => String(value))
-							: undefined,
-						addBlocks: Array.isArray(call.input.addBlocks)
-							? call.input.addBlocks.map((value) => String(value))
-							: undefined,
-					}),
-				}));
+				const tasks = context.loadTasks ? ((await context.loadTasks()) ?? []) : (await context.getSession()).tasks;
+				const nextTasks = updateTask(tasks, {
+					id: String(call.input.id ?? ""),
+					title: call.input.title ? String(call.input.title) : undefined,
+					description: call.input.description ? String(call.input.description) : undefined,
+					status: call.input.status as SessionState["tasks"][number]["status"] | undefined,
+					addBlockedBy: Array.isArray(call.input.addBlockedBy)
+						? call.input.addBlockedBy.map((value) => String(value))
+						: undefined,
+					addBlocks: Array.isArray(call.input.addBlocks)
+						? call.input.addBlocks.map((value) => String(value))
+						: undefined,
+				});
+				if (context.saveTasks) {
+					await context.saveTasks(nextTasks);
+				} else {
+					await context.updateSession((session) => ({
+						...session,
+						tasks: nextTasks,
+					}));
+				}
 
 				return {
 					toolUseId: call.id,
@@ -1603,8 +1620,8 @@ export function createExtendedTools(): RuntimeTool[] {
 				}),
 			}),
 			async (call, context) => {
-				const session = await context.getSession();
-				const task = getTask(session.tasks, String(call.input.id ?? ""));
+				const tasks = context.loadTasks ? ((await context.loadTasks()) ?? []) : (await context.getSession()).tasks;
+				const task = getTask(tasks, String(call.input.id ?? ""));
 				return {
 					toolUseId: call.id,
 					name: call.name,

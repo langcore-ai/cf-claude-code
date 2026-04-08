@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { InMemorySessionStore, InMemoryTodoMemoryStore } from "../adapters";
+import { InMemorySessionStore, InMemoryTaskStore, InMemoryTodoMemoryStore } from "../adapters";
 import { createMemoryRuntime, MemoryAgentRuntime, SUBAGENT_TOOL_NAMES } from "../core";
 import { InMemorySkillProvider } from "../skills";
 import type { AIClient, GenerateTurnInput, ModelTurnResult } from "../types";
@@ -117,6 +117,50 @@ describe("MemoryAgentRuntime", () => {
 		const snapshot = await secondRuntime.getSession(session.id);
 		expect(snapshot.messages.at(-1)?.role).toBe("assistant");
 		expect(snapshot.messages.at(-1)?.content[0]).toEqual({ type: "text", text: "hello again" });
+	});
+
+	test("task 升级到独立 store 后仍兼容旧 session payload 恢复", async () => {
+		const sessionStore = new InMemorySessionStore();
+		const taskStore = new InMemoryTaskStore();
+		const runtime = new MemoryAgentRuntime({
+			aiClient: new StubAiClient(async () => ({
+				stopReason: "end_turn",
+				content: [{ type: "text", text: "ok" }],
+			})),
+			sessionStore,
+			taskStore,
+			workspace: new InMemoryWorkspace("test"),
+		});
+
+		const session = await runtime.startSession({
+			sessionId: "legacy-task-session",
+			config: {
+				systemPrompt: "test",
+				tokenThreshold: 9999,
+				maxTurnsPerMessage: 4,
+			},
+		});
+
+		await sessionStore.save({
+			...(await runtime.getSession(session.id)),
+			tasks: [
+				{
+					id: "legacy-task-1",
+					title: "legacy task",
+					status: "open",
+					blockedBy: [],
+					blocks: [],
+					createdAt: new Date().toISOString(),
+					updatedAt: new Date().toISOString(),
+				},
+			],
+		});
+		await taskStore.deleteTasks(session.id);
+
+		const restored = await runtime.getSession(session.id);
+		expect(restored.tasks[0]?.id).toBe("legacy-task-1");
+		const persistedTasks = await taskStore.loadTasks(session.id);
+		expect(persistedTasks?.[0]?.id).toBe("legacy-task-1");
 	});
 
 	test("tool_use 但没有工具块时失败", async () => {
@@ -1011,6 +1055,56 @@ describe("MemoryAgentRuntime", () => {
 		).toBe(true);
 	});
 
+	test("Task 返回的 tool_result meta 会带上 description 和统计信息", async () => {
+		const runtime = new MemoryAgentRuntime({
+			aiClient: new StubAiClient(async (input) => {
+				if (input.tools.some((tool) => tool.name === "Task")) {
+					return {
+						stopReason: "tool_use",
+						content: [
+							{
+								type: "tool_use",
+								id: "task-1",
+								name: "Task",
+								input: {
+									description: "inspect notes",
+									prompt: "inspect /notes.txt",
+									subagent_type: "general-purpose",
+								},
+							},
+						],
+					};
+				}
+
+				return {
+					stopReason: "end_turn",
+					content: [{ type: "text", text: "child summary" }],
+				};
+			}),
+		});
+
+		const session = await runtime.startSession({
+			config: {
+				systemPrompt: "test",
+				tokenThreshold: 9999,
+				maxTurnsPerMessage: 3,
+			},
+		});
+
+		const result = await runtime.invokeTool(session.id, {
+			id: "task-direct",
+			name: "Task",
+			input: {
+				description: "inspect notes",
+				prompt: "inspect /notes.txt",
+				subagent_type: "general-purpose",
+			},
+		});
+		expect(result.meta?.description).toBe("inspect notes");
+		expect(result.meta?.turnCount).toBeDefined();
+		expect(result.meta?.messageCount).toBeDefined();
+	});
+
 	test("启用 state_exec 时主会话 prompt 会注入官方 state prompt", async () => {
 		let capturedSystemPrompt = "";
 		const runtime = createMemoryRuntime({
@@ -1108,6 +1202,9 @@ describe("MemoryAgentRuntime", () => {
 		expect(SUBAGENT_TOOL_NAMES.has("subagent_run")).toBe(false);
 		expect(SUBAGENT_TOOL_NAMES.has("subagent_start")).toBe(false);
 		expect(SUBAGENT_TOOL_NAMES.has("state_exec")).toBe(false);
+		expect(SUBAGENT_TOOL_NAMES.has("load_skill")).toBe(false);
+		expect(SUBAGENT_TOOL_NAMES.has("list_skill_files")).toBe(false);
+		expect(SUBAGENT_TOOL_NAMES.has("read_skill_file")).toBe(false);
 		expect(SUBAGENT_TOOL_NAMES.has("read_file")).toBe(true);
 		expect(SUBAGENT_TOOL_NAMES.has("grep")).toBe(true);
 	});
@@ -1147,6 +1244,51 @@ describe("MemoryAgentRuntime", () => {
 
 		const jobs = await runtime.listSubagentJobs(session.id);
 		expect(jobs[0]?.status).toBe("failed");
+	});
+
+	test("subagent 空文本总结会回退到规范化 summary", async () => {
+		const runtime = new MemoryAgentRuntime({
+			aiClient: new StubAiClient(async () => ({
+				stopReason: "end_turn",
+				content: [],
+			})),
+		});
+
+		const session = await runtime.startSession({
+			config: {
+				systemPrompt: "test",
+				tokenThreshold: 9999,
+				maxTurnsPerMessage: 2,
+			},
+		});
+
+		const result = await runtime.runSubagent(session.id, "inspect");
+		expect(result.summary).toBe("Subagent finished without a usable final summary.");
+	});
+
+	test("subagent 连续重复错误工具调用会中断并记录 failed job", async () => {
+		const runtime = new MemoryAgentRuntime({
+			aiClient: new StubAiClient(async () => ({
+				stopReason: "tool_use",
+				content: [{ type: "tool_use", id: `bad-read-${Math.random()}`, name: "read_file", input: { path: "/missing.txt" } }],
+			})),
+		});
+
+		const session = await runtime.startSession({
+			config: {
+				systemPrompt: "test",
+				tokenThreshold: 9999,
+				maxTurnsPerMessage: 3,
+			},
+		});
+
+		await expect(runtime.runSubagent(session.id, "inspect missing file", { description: "inspect missing" })).rejects.toThrow(
+			"Subagent repeated failing tool calls for task: inspect missing",
+		);
+
+		const jobs = await runtime.listSubagentJobs(session.id);
+		expect(jobs[0]?.status).toBe("failed");
+		expect(jobs[0]?.error).toContain("Subagent repeated failing tool calls");
 	});
 
 	test("subagent_start / subagent_status / subagent_list 提供 async 骨架", async () => {

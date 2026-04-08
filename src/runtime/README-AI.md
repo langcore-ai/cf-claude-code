@@ -61,6 +61,12 @@
   - Todo 支持 `activeForm` 和更强的渲染语义
   - Todo 现在还会保留最近一次非空 Todo 快照，作为 runtime 范围内的短期 Todo 记忆
   - subagent 支持 fresh context 的同步子会话执行，只把摘要文本回给父会话
+  - subagent orchestration 当前已按同步阶段收敛：
+    - 先归一化任务描述与 prompt
+    - 再创建 sync job 并发出 started 事件
+    - 子循环只暴露受限核心工具面
+    - 结束后把 summary 与 turn/message 统计写回 job，并作为 tool_result meta 回注给父会话
+  - subagent 当前会对空 summary、超长 summary 和连续重复错误工具调用做治理，避免把低质量结果直接回注给父会话
   - 核心工具增加了 reverse 风格的 `Task` 别名；当前只接受 `subagent_type="general-purpose"`
   - 会话现在支持 `normal | plan` 两种 mode；plan mode 只暴露只读规划工具，并通过 `ExitPlanMode` 显式退出
   - 异步 subagent 当前只提供 queued job 骨架和状态查询接口，不运行后台 loop
@@ -101,6 +107,10 @@
   - 扩展工具：`state_exec`、skill 工具、task board 工具、异步 subagent 工具
   - plan mode 允许的核心工具：`read_file`、`list_files`、`glob`、`grep`、`WebFetch`、`WebSearch`、`TodoWrite`、`compact`、`ExitPlanMode`
   - plan mode 会屏蔽所有写工具和 subagent/tooling 扩展能力
+- subagent 的可见工具面当前故意比主会话更窄：
+  - 保留：`read_file`、`write_file`、`list_files`、`glob`、`grep`、`edit`、`multi_edit`、`WebFetch`、`WebSearch`、`TodoWrite`、`compact`
+  - 排除：`state_exec`、task board 工具、async subagent 工具、skill 工具
+  - 目标是把 subagent 收敛成“独立研究 / 搜索 / 必要编辑”的一次性 worker，而不是再扩张上下文和工具面
 - 默认工具描述当前优先参考 `external/claude-code-reverse/results/tools/*.tool.yaml`，尤其是 `Read`、`Write`、`TodoWrite`、`Task`、`Ls` 这些最接近的官方 prompt 语义
   - 默认 system prompt 会强约束文件操作必须走真实工具，不能只返回伪代码或口头声称已完成
   - `write_file` / `edit` / `multi_edit` 当前会对现有文件执行 read-before-write 校验
@@ -145,7 +155,8 @@
 - 不要把 `git` 作为本目录的核心叙事，工作区本身才是主目标。
 - 当前 runtime 已通过 `state_exec` 暴露结构化 `state.*`，但还没有把 shell 的全部执行面扩展到 `git.*`、更完整的 sandbox/provider 编排。
 - 当前 prompt 与工具描述会明确禁止把 `/` 当成文件路径；在根目录创建文件时，必须使用 `/<filename>` 这种具体路径。
-- 当前 durable state 只覆盖 session / transcript / subagent jobs / todo short-term memory；task board 和当前轮的 todo 仍内嵌在 session snapshot 内。
+- 当前 durable state 已覆盖 session / transcript / subagent jobs / todo short-term memory / task board。
+- task board 现在以独立 `TaskStore` 持久化；`SessionState.tasks` 仍然保留，但主要承担 Worker/API 兼容返回结构，不再是 task 的唯一持久化来源。
 - continuity compact 当前会要求模型按 reverse 风格输出结构化摘要段落，并优先提取 `<summary>...</summary>` 作为最终 `compactSummary`；若模型额外输出 `<analysis>`，runtime 会在持久化前剥离。
 - `SessionState.mode` 当前也会随 session snapshot 一起持久化，因此 compact 和 session 恢复后仍会保留 `plan` / `normal` 状态。
 - D1 持久化表当前包括：
@@ -153,8 +164,12 @@
   - `${namespace}_transcripts`：compact 前的消息快照
   - `${namespace}_subagent_jobs`：subagent job 记录
   - `runtime_todo_memory`：最近一次非空 Todo 快照；字段为 `namespace`、`session_id`、`payload`、`updated_at`
-- 正式迁移文件当前位于 [migrations/0001_runtime_todo_memory.sql](/Users/igmainc/Projects/cf-claude-code/migrations/0001_runtime_todo_memory.sql)，用于把 `runtime_todo_memory` 作为幂等 D1 迁移显式落盘。
+- `runtime_tasks`：当前会话的 task board 快照；字段为 `namespace`、`session_id`、`payload`、`updated_at`
+- 正式迁移文件当前位于：
+  - [migrations/0001_runtime_todo_memory.sql](/Users/igmainc/Projects/cf-claude-code/migrations/0001_runtime_todo_memory.sql)
+  - [migrations/0002_runtime_tasks.sql](/Users/igmainc/Projects/cf-claude-code/migrations/0002_runtime_tasks.sql)
 - `runtime_todo_memory` 通过 `(namespace, session_id)` 复合主键隔离不同 runtime 命名空间，只服务 runtime 内部的 Todo 连续性提示，不承担宿主级启动恢复或 project 级任务管理语义。
+- `runtime_tasks` 同样通过 `(namespace, session_id)` 复合主键隔离不同 runtime 命名空间；runtime 恢复旧 session 时，会把历史 `SessionState.tasks` 回填进独立表，避免升级后丢失旧 task 数据。
 - `Bash` / `WebFetch` / `WebSearch` 当前首版不新增 D1 表：
   - Bash 不保留跨请求 shell session，也不持久化最近命令结果
   - WebFetch / WebSearch 不做 durable cache；如果未来要跨请求复用网页内容，再考虑新增 `runtime_web_cache`

@@ -22,6 +22,7 @@ export type {
 	SubagentStore,
 	StartSessionInput,
 	StopReason,
+	TaskStore,
 	TaskStatus,
 	TextBlock,
 	TodoItem,
