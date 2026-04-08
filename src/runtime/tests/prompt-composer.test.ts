@@ -114,4 +114,18 @@ describe("prompt composer", () => {
 		expect(prompt).toContain("Additional runtime instructions:");
 		expect(prompt).toContain("custom rules");
 	});
+
+	test("core prompt reminder 不混入宿主侧 prompt 片段", () => {
+		const prompt = composeMainSystemPrompt({
+			skills: [],
+			hasStatePrompt: false,
+			renderedStatePrompt: "",
+			session: createSession(),
+			rememberedTodos: null,
+		});
+
+		expect(prompt).not.toContain("check-new-topic");
+		expect(prompt).not.toContain("summarize-previous-conversation");
+		expect(prompt).not.toContain("ide-opened-file");
+	});
 });

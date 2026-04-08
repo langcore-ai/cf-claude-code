@@ -587,6 +587,61 @@ describe("MemoryAgentRuntime", () => {
 		).toBe(true);
 	});
 
+	test("Todo nag 不会在后续轮次里无限重复注入同一文案", async () => {
+		let turn = 0;
+		const runtime = new MemoryAgentRuntime({
+			aiClient: new StubAiClient(async () => {
+				turn += 1;
+				if (turn === 1) {
+					return {
+						stopReason: "tool_use",
+						content: [
+							{
+								type: "tool_use",
+								id: "tool-1",
+								name: "TodoWrite",
+								input: {
+									items: [{ id: "todo-1", content: "do thing", status: "pending" }],
+								},
+							},
+						],
+					};
+				}
+
+				if (turn < 7) {
+					return {
+						stopReason: "tool_use",
+						content: [{ type: "tool_use", id: `tool-${turn}`, name: "task_list", input: {} }],
+					};
+				}
+
+				return {
+					stopReason: "end_turn",
+					content: [{ type: "text", text: "done" }],
+				};
+			}),
+		});
+
+		const session = await runtime.startSession({
+			config: {
+				systemPrompt: "test",
+				tokenThreshold: 9999,
+				maxTurnsPerMessage: 8,
+			},
+		});
+
+		await runtime.sendUserMessage(session.id, "start");
+		const snapshot = await runtime.getSession(session.id);
+		const nagMessages = snapshot.messages.filter(
+			(message) =>
+				message.role === "system" &&
+				message.content.some(
+					(block) => block.type === "text" && block.text.includes("unfinished todos"),
+				),
+		);
+		expect(nagMessages).toHaveLength(1);
+	});
+
 	test("存在 todo 时 prompt 会注入 end reminder 而不是空 todo 提醒", async () => {
 		let capturedSystemPrompt = "";
 		let turn = 0;
@@ -1245,6 +1300,48 @@ describe("MemoryAgentRuntime", () => {
 			);
 
 		expect(systemTexts.some((text) => text.includes("You have repeated the same invalid tool call multiple times."))).toBe(true);
+	});
+
+	test("重复失败提醒不会用相同文案无限重复注入", async () => {
+		let turn = 0;
+		const runtime = createMemoryRuntime({
+			aiClient: new StubAiClient(async () => {
+				turn += 1;
+				if (turn <= 3) {
+					return {
+						stopReason: "tool_use",
+						content: [{ type: "tool_use", id: `bad-write-${turn}`, name: "write_file", input: { path: "/" } }],
+					};
+				}
+
+				return {
+					stopReason: "end_turn",
+					content: [{ type: "text", text: "done" }],
+				};
+			}),
+		});
+
+		const session = await runtime.startSession({
+			config: {
+				systemPrompt: "test",
+				tokenThreshold: 9999,
+				maxTurnsPerMessage: 5,
+			},
+		});
+
+		await runtime.sendUserMessage(session.id, "create a file");
+		const snapshot = await runtime.getSession(session.id);
+		const repeatedWarnings = snapshot.messages.filter(
+			(message) =>
+				message.role === "system" &&
+				message.content.some(
+					(block) =>
+						block.type === "text" &&
+						block.text.includes("You have repeated the same invalid tool call multiple times."),
+				),
+		);
+
+		expect(repeatedWarnings).toHaveLength(1);
 	});
 
 	test("glob / grep / edit / multi_edit 走核心工具链", async () => {

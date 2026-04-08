@@ -1,4 +1,5 @@
 import type { SessionState, TodoItem } from "../types";
+import { buildEndReminder, buildPlanModeReminder, buildStartReminder } from "./reminders";
 
 /** Prompt 片段标识 */
 export type PromptSectionId =
@@ -89,50 +90,10 @@ const WORKFLOW_PROMPT = [
 	"Remember that responses are shown in a CLI-style interface and should stay compact and operational.",
 ].join("\n");
 
-/** 会话开头 reminder */
-const START_REMINDER_PROMPT = [
-	"<system-reminder>",
-	"As you answer the user's questions, you can use the following context:",
-	"",
-	"# important-instruction-reminders",
-	"",
-	"Do what has been asked; nothing more, nothing less.",
-	"NEVER create files unless they're absolutely necessary for achieving your goal.",
-	"ALWAYS prefer editing an existing file to creating a new one.",
-	"NEVER proactively create documentation files (*.md) or README files. Only create documentation files if explicitly requested by the user.",
-	"If the task can be solved by updating an existing file, do that instead of introducing new files or abstractions.",
-	"",
-	"IMPORTANT: this context may or may not be relevant to your tasks. You should not respond to this context unless it is highly relevant to your task.",
-	"</system-reminder>",
-].join("\n");
-
-/** 空 todo 的 end reminder */
-const EMPTY_TODO_END_REMINDER_PROMPT = [
-	"<system-reminder>",
-	"This is a reminder that your todo list is currently empty.",
-	"DO NOT mention this to the user explicitly because they are already aware.",
-	"If you are working on tasks that would benefit from a todo list please use the TodoWrite tool to create one.",
-	"If not, please feel free to ignore.",
-	"Again do not mention this message to the user.",
-	"</system-reminder>",
-].join("\n");
-
 /** compact 后续延续提示词 */
 const COMPACT_PROMPT = [
 	"If a compact summary is present, treat it as authoritative continuity context.",
 	"Continue work from the compact summary without asking the user to repeat prior context.",
-].join("\n");
-
-/** plan mode 提示词 */
-const PLAN_MODE_PROMPT = [
-	"<system-reminder>",
-	"You are currently in plan mode.",
-	"Focus on analysis, decomposition, risk identification, and maintaining the todo plan.",
-	"Do not modify workspace files while plan mode is active.",
-	"Use TodoWrite to keep the plan current.",
-	"Stay in a read-only planning posture until the user clearly wants execution to begin.",
-	"When planning is complete and the user wants execution to begin, use ExitPlanMode before making changes.",
-	"</system-reminder>",
 ].join("\n");
 
 /** subagent 身份片段 */
@@ -174,63 +135,6 @@ function buildSkillSection(skills: Array<{ name: string; description: string }>)
 }
 
 /**
- * 把 todo 列表渲染成 end reminder 使用的文本。
- * @param todos Todo 列表
- * @returns 列表文本
- */
-function buildTodoLines(todos: TodoItem[]): string {
-	return todos
-		.map((todo) => {
-			const priority = todo.priority ? ` priority=${todo.priority}` : "";
-			return `- [${todo.status}] ${todo.content}${priority}${todo.activeForm ? ` <- ${todo.activeForm}` : ""}`;
-		})
-		.join("\n");
-}
-
-/**
- * 构建 runtime 结束提醒片段。
- * 这里只放 runtime 内部状态相关提示，不引入宿主预检或 IDE 注入。
- * @param session 当前会话
- * @param rememberedTodos 最近 todo memory
- * @returns reminder 片段
- */
-function buildEndReminderSection(session: SessionState, rememberedTodos?: TodoItem[] | null): PromptSection {
-	if (session.todos.length === 0 && (!rememberedTodos || rememberedTodos.length === 0)) {
-		return {
-			id: "end_reminder",
-			content: EMPTY_TODO_END_REMINDER_PROMPT,
-		};
-	}
-
-	const activeTodos = session.todos.length > 0 ? session.todos : (rememberedTodos ?? []);
-	const todoLines = buildTodoLines(activeTodos);
-	const taskReminder =
-		session.tasks.length > 0
-			? "\nThere are also runtime task-board entries. Treat them as platform memory, not as a substitute for TodoWrite."
-			: "";
-	const memoryReminder =
-		session.todos.length === 0 && rememberedTodos && rememberedTodos.length > 0
-			? "Current todo list is empty, but recent todo memory exists below. Recreate TodoWrite items if the plan is still active."
-			: "There are active todos. Keep TodoWrite synchronized with real progress.";
-
-	return {
-		id: "end_reminder",
-		content: [
-			"<system-reminder>",
-			memoryReminder,
-			"Keep exactly one todo in_progress at a time and mark items completed immediately after finishing them.",
-			"If the plan changed, update TodoWrite immediately instead of waiting for the end of the turn.",
-			session.todos.length === 0 ? "Recent todo memory:" : "Current todos:",
-			todoLines,
-			`${taskReminder}`.trim(),
-			"</system-reminder>",
-		]
-			.filter(Boolean)
-			.join("\n"),
-	};
-}
-
-/**
  * 构建主会话 prompt 片段列表。
  * 先构造片段，再统一渲染，避免后续逻辑继续散落在 composeMainSystemPrompt 中。
  * @param input 组合输入
@@ -255,16 +159,19 @@ export function buildMainPromptSections(input: {
 		},
 		{
 			id: "start_reminder",
-			content: START_REMINDER_PROMPT,
+			content: buildStartReminder(),
 		},
 		input.session.mode === "plan"
 			? {
 					id: "plan_mode",
-					content: PLAN_MODE_PROMPT,
+					content: buildPlanModeReminder(),
 				}
 			: null,
 		buildSkillSection(input.skills),
-		buildEndReminderSection(input.session, input.rememberedTodos),
+		{
+			id: "end_reminder",
+			content: buildEndReminder(input.session, input.rememberedTodos),
+		},
 		input.hasStatePrompt
 			? {
 					id: "state",

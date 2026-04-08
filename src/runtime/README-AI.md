@@ -81,6 +81,12 @@
 - runtime 还新增了 tool-calling 稳定性策略：
   - 任一工具返回错误后，runtime 会自动追加一个内部 `<system-reminder>`，明确告诉模型上一个工具为什么失败、下一次必须修正参数而不是重复同一错误调用
   - 如果模型连续两次以上重复相同的错误工具调用，runtime 会注入更强的重复失败提醒，用来打断无效重试
+- runtime 的 reminder 体系当前已按 agent core 分成两层：
+  - prompt-level reminder：由 `prompt-composer.ts` 通过 `core/reminders.ts` 装配 `system-reminder-start`、`system-reminder-end`、`plan mode reminder`
+  - runtime event reminder：由 `runtime.ts` 在工具失败、重复失败、todo 长时间未更新时注入内部 `<system-reminder>`
+- 当前这样拆分的目的是把“长期状态提示”和“本轮事件纠偏”分开：
+  - 长期状态：todo、todo memory、task continuity、plan mode
+  - 本轮事件：tool failure、repeated tool failure、todo idle nag
 - `prompt-composer.ts` 当前已从“直接拼字符串”收敛成“两段式装配”：
   - 先构建 `PromptSection[]`
   - 再通过统一 `renderPromptSections(...)` 渲染

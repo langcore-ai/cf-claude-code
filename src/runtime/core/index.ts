@@ -20,3 +20,12 @@ export {
 	type PromptSection,
 	type PromptSectionId,
 } from "./prompt-composer";
+export {
+	buildEndReminder,
+	buildPlanModeReminder,
+	buildStartReminder,
+	buildTodoIdleReminder,
+	buildToolFailureReminder,
+	type PromptReminderKind,
+	type RuntimeEventReminderKind,
+} from "./reminders";

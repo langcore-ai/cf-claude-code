@@ -10,6 +10,7 @@ import {
 } from "../adapters";
 import { autoCompactSession, compactSession, microCompactMessages } from "./compact";
 import { composeMainSystemPrompt, composeSubagentSystemPrompt } from "./prompt-composer";
+import { buildTodoIdleReminder, buildToolFailureReminder } from "./reminders";
 import type { StateExecutor } from "./state-executor";
 import { SubagentRunner } from "./subagent-runner";
 import { hasOpenTodos } from "../domain";
@@ -42,8 +43,6 @@ import { InMemoryWorkspace, type Workspace } from "../workspace";
 
 /** Todo nag 触发阈值 */
 const TODO_NAG_THRESHOLD = 3;
-/** 重复相同失败工具调用时，回注更强纠偏提醒所需的最小失败次数 */
-const REPEATED_TOOL_FAILURE_THRESHOLD = 2;
 
 /** 默认会话配置 */
 export const DEFAULT_SESSION_CONFIG: SessionConfig = {
@@ -202,31 +201,6 @@ function countFailedToolCallAttempts(session: SessionState, call: ToolCall): num
 	}
 
 	return failures;
-}
-
-/**
- * 构造工具失败后的 runtime 提醒。
- * 这个提醒只服务下一轮模型纠偏，不直接作为用户可见说明。
- * @param call 失败的工具调用
- * @param toolResult 工具结果
- * @param repeatedFailures 相同调用的历史失败次数
- * @returns system reminder 文本
- */
-function buildToolFailureReminder(call: ToolCall, toolResult: ToolResult, repeatedFailures: number): string {
-	const repeatedWarning =
-		repeatedFailures >= REPEATED_TOOL_FAILURE_THRESHOLD
-			? "You have repeated the same invalid tool call multiple times. Do not repeat it again without changing the arguments."
-			: "Do not repeat the same invalid tool call. Change the arguments before retrying.";
-
-	return [
-		"<system-reminder>",
-		`The last tool call failed: ${call.name}.`,
-		`Error: ${toolResult.content}`,
-		"Inspect the error carefully and correct the next tool call instead of describing hypothetical success.",
-		"Ensure required arguments are present and non-empty before retrying.",
-		repeatedWarning,
-		"</system-reminder>",
-	].join("\n");
 }
 
 /**
@@ -417,20 +391,16 @@ export class MemoryAgentRuntime implements AgentRuntime {
 				);
 
 				if (toolResult.isError) {
-					session = this.appendMessage(session, "system", [
+					const reminder = buildToolFailureReminder(
 						{
-							type: "text",
-							text: buildToolFailureReminder(
-								{
-									id: block.id,
-									name: block.name,
-									input: block.input,
-								},
-								toolResult,
-								failedAttempts + 1,
-							),
+							id: block.id,
+							name: block.name,
+							input: block.input,
 						},
-					]);
+						toolResult,
+						failedAttempts + 1,
+					);
+					session = this.appendRuntimeReminder(session, reminder.content);
 					await this.sessionStore.save(session);
 				}
 
@@ -464,12 +434,7 @@ export class MemoryAgentRuntime implements AgentRuntime {
 				};
 
 				if (idleTurns >= TODO_NAG_THRESHOLD) {
-					session = this.appendMessage(session, "system", [
-						{
-							type: "text",
-							text: "Reminder: there are unfinished todos. Update TodoWrite if the plan changed.",
-						},
-					]);
+					session = this.appendRuntimeReminder(session, buildTodoIdleReminder().content);
 				}
 			}
 
@@ -886,6 +851,39 @@ export class MemoryAgentRuntime implements AgentRuntime {
 			],
 			updatedAt: new Date().toISOString(),
 		};
+	}
+
+	/**
+	 * 追加 runtime 内部 system reminder。
+	 * 为避免 reminder 在连续多轮里无限重复，这里对“最后一条同文案 system message”做最小去重。
+	 * @param session 当前会话
+	 * @param reminder reminder 文本
+	 * @returns 更新后的会话
+	 */
+	private appendRuntimeReminder(session: SessionState, reminder: string): SessionState {
+		const lastSystemMessage = [...session.messages]
+			.reverse()
+			.find(
+				(message) =>
+					message.role === "system" &&
+					message.content.length === 1 &&
+					message.content[0]?.type === "text",
+			);
+		const lastText =
+			lastSystemMessage?.role === "system" && lastSystemMessage.content[0]?.type === "text"
+				? lastSystemMessage.content[0].text
+				: null;
+
+		if (lastText === reminder) {
+			return session;
+		}
+
+		return this.appendMessage(session, "system", [
+			{
+				type: "text",
+				text: reminder,
+			},
+		]);
 	}
 
 	/**
