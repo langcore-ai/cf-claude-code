@@ -86,6 +86,30 @@ type ApiErrorCode = "SESSION_NOT_FOUND" | "INVALID_REQUEST" | "RUNTIME_ERROR";
 const FALLBACK_MEMORY_RUNTIMES = new Map<string, MemoryAgentRuntime>();
 
 /**
+ * 构建 Worker 关键环境变量摘要日志。
+ * 只输出开关和可公开的主机信息，不输出任何 secret 原文。
+ * @param env Worker bindings
+ * @param sessionId 会话 id
+ * @returns 可序列化日志对象
+ */
+function buildWorkerEnvLog(env: WorkerBindings, sessionId: string) {
+	return {
+		sessionId,
+		hasRuntimeDb: Boolean(env.RUNTIME_DB),
+		hasRuntimeBucket: Boolean(env.RUNTIME_BUCKET),
+		hasOpenAiApiKey: Boolean(env.OPENAI_API_KEY),
+		openAiBaseUrlHost: (() => {
+			try {
+				return new URL(env.OPENAI_BASE_URL).host;
+			} catch {
+				return "invalid";
+			}
+		})(),
+		hasJinaApiKey: Boolean(env.JINA_API_KEY),
+	};
+}
+
+/**
  * 为 session 派生稳定的 workspace 名称。
  * @param sessionId 会话 id
  * @returns workspace 名称
@@ -349,6 +373,7 @@ async function parseWorkspaceUploadFormData(formData: FormData): Promise<Uploade
  * @returns runtime 实例
  */
 export function createWorkerRuntime(env: WorkerBindings, sessionId: string): MemoryAgentRuntime {
+	console.info("[worker] createWorkerRuntime", buildWorkerEnvLog(env, sessionId));
 	const aiClient = createOpenAiClient({
 		apiKey: env.OPENAI_API_KEY,
 		baseURL: env.OPENAI_BASE_URL,
@@ -373,6 +398,10 @@ export function createWorkerRuntime(env: WorkerBindings, sessionId: string): Mem
 			error instanceof Error &&
 			error.message.includes("weak map key")
 		) {
+			console.warn("[worker] createWorkerRuntime:fallback-memory", {
+				sessionId,
+				reason: error.message,
+			});
 			const existing = FALLBACK_MEMORY_RUNTIMES.get(sessionId);
 			if (existing) {
 				return existing;

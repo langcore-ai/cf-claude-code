@@ -96,6 +96,28 @@ const WEB_SEARCH_PROVIDER = "google";
 const WEB_SEARCH_RESPOND_WITH = "markdown";
 /** WebSearch 默认缓存容忍时间（秒） */
 const WEB_SEARCH_CACHE_TOLERANCE = 300;
+
+/**
+ * 构建 Web 工具的环境摘要日志。
+ * 这里只记录配置是否存在与最小请求上下文，不输出真实密钥内容。
+ * @param toolName 工具名
+ * @param input 工具输入
+ * @param apiKey Jina API Key
+ * @returns 可序列化日志对象
+ */
+function buildWebToolEnvLog(
+	toolName: "WebFetch" | "WebSearch",
+	input: ToolCall["input"],
+	apiKey: string | undefined,
+) {
+	return {
+		toolName,
+		hasJinaApiKey: Boolean(apiKey),
+		url: typeof input.url === "string" ? input.url : undefined,
+		query: typeof input.query === "string" ? input.query : undefined,
+		respondWith: typeof input.respondWith === "string" ? input.respondWith : undefined,
+	};
+}
 /** plan mode 允许的核心工具 */
 export const PLAN_MODE_ALLOWED_TOOL_NAMES = new Set([
 	"read_file",
@@ -1090,6 +1112,7 @@ export function createCoreTools(): RuntimeTool[] {
 				if (!context.runPrompt) {
 					throw new Error("WebFetch requires runtime model access");
 				}
+				console.info("[runtime] WebFetch:env", buildWebToolEnvLog("WebFetch", call.input, context.webFetch?.jinaApiKey));
 
 				const url = normalizeUrl(String(call.input.url ?? ""));
 				const requestUrl = new URL(buildJinaReaderUrl(url));
@@ -1145,6 +1168,10 @@ export function createCoreTools(): RuntimeTool[] {
 				}),
 			}),
 			async (call, context) => {
+				console.info(
+					"[runtime] WebSearch:env",
+					buildWebToolEnvLog("WebSearch", call.input, context.webFetch?.jinaApiKey),
+				);
 				const query = String(call.input.query ?? "");
 				const blockedDomains = Array.isArray(call.input.blocked_domains)
 					? call.input.blocked_domains.map((item) => String(item))

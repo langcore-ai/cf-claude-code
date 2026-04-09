@@ -96,6 +96,23 @@ export interface RuntimeDependencies {
 const RENDERED_STATE_SYSTEM_PROMPT = STATE_SYSTEM_PROMPT.replace("{{types}}", STATE_TYPES);
 
 /**
+ * 生成工具调用日志载荷。
+ * 只保留可观察性所需的最小字段，避免日志过大或包含敏感值。
+ * @param session 会话快照
+ * @param call 工具调用
+ * @returns 可序列化日志对象
+ */
+function buildToolInvocationLogPayload(session: SessionState, call: ToolCall) {
+	return {
+		sessionId: session.id,
+		mode: session.mode,
+		toolUseId: call.id,
+		toolName: call.name,
+		inputKeys: Object.keys((call.input ?? {}) as Record<string, unknown>),
+	};
+}
+
+/**
  * 创建一个可推送的事件流。
  * @returns 事件控制器
  */
@@ -464,16 +481,34 @@ export class MemoryAgentRuntime implements AgentRuntime {
 	async invokeTool(sessionId: string, call: ToolCall): Promise<ToolResult> {
 		try {
 			const session = await this.requireSession(sessionId);
+			console.info("[runtime] invokeTool:start", buildToolInvocationLogPayload(session, call));
 			if (!this.isToolAllowedForSession(session, call.name)) {
-				return {
+				const deniedResult = {
 					toolUseId: call.id,
 					name: call.name,
 					content: `Tool ${call.name} is not available while session mode is ${session.mode}`,
 					isError: true,
 				};
+				console.warn("[runtime] invokeTool:denied", {
+					...buildToolInvocationLogPayload(session, call),
+					reason: "tool_not_allowed_for_mode",
+				});
+				return deniedResult;
 			}
-			return await this.dispatcher.execute(call, this.createToolContext(sessionId, true));
+			const result = await this.dispatcher.execute(call, this.createToolContext(sessionId, true));
+			console.info("[runtime] invokeTool:done", {
+				...buildToolInvocationLogPayload(session, call),
+				isError: Boolean(result.isError),
+				contentLength: result.content.length,
+			});
+			return result;
 		} catch (error) {
+			console.error("[runtime] invokeTool:error", {
+				sessionId,
+				toolUseId: call.id,
+				toolName: call.name,
+				error: error instanceof Error ? error.message : "Unknown tool error",
+			});
 			return {
 				toolUseId: call.id,
 				name: call.name,
