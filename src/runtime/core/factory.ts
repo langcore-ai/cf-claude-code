@@ -5,11 +5,13 @@ import {
 	D1SubagentStore,
 	D1TaskStore,
 	D1TodoMemoryStore,
+	D1TodoStore,
 	D1TranscriptStore,
 	InMemorySessionStore,
 	InMemorySubagentStore,
 	InMemoryTaskStore,
 	InMemoryTodoMemoryStore,
+	InMemoryTodoStore,
 	InMemoryTranscriptStore,
 } from "../adapters";
 import { MemoryStateExecutor, WorkspaceStateExecutor } from "./state-executor";
@@ -64,6 +66,7 @@ export function createMemoryRuntime(options: CreateMemoryRuntimeOptions): Memory
 		transcriptStore: new InMemoryTranscriptStore(),
 		subagentStore: new InMemorySubagentStore(),
 		taskStore: new InMemoryTaskStore(),
+		todoStore: new InMemoryTodoStore(),
 		todoMemoryStore: new InMemoryTodoMemoryStore(),
 		stateExecutor: new MemoryStateExecutor(workspace),
 		tools: options.tools ?? DEFAULT_TOOLS,
@@ -112,6 +115,9 @@ export function createDurableRuntime(options: CreateDurableRuntimeOptions): Memo
 			namespace: options.namespace,
 		}),
 		taskStore: new D1TaskStore(options.sql, {
+			namespace: options.namespace,
+		}),
+		todoStore: new D1TodoStore(options.sql, {
 			namespace: options.namespace,
 		}),
 		todoMemoryStore: new D1TodoMemoryStore(options.sql, {

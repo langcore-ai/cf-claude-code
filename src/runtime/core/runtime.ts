@@ -6,6 +6,7 @@ import {
 	InMemorySubagentStore,
 	InMemoryTaskStore,
 	InMemoryTodoMemoryStore,
+	InMemoryTodoStore,
 	InMemoryTranscriptStore,
 	type TranscriptStore,
 } from "../adapters";
@@ -37,6 +38,7 @@ import type {
 	SubagentResult,
 	SubagentStore,
 	TaskStore,
+	TodoStore,
 	TodoMemoryStore,
 	ToolCall,
 	ToolResult,
@@ -79,6 +81,8 @@ export interface RuntimeDependencies {
 	subagentStore?: SubagentStore;
 	/** Todo 短期记忆 store */
 	todoMemoryStore?: TodoMemoryStore;
+	/** Todo 独立持久化 store */
+	todoStore?: TodoStore;
 	/** Task 独立持久化 store */
 	taskStore?: TaskStore;
 	/** 结构化 state 执行器 */
@@ -235,6 +239,7 @@ export class MemoryAgentRuntime implements AgentRuntime {
 	private readonly dispatcher: ToolDispatcher;
 	private readonly transcriptStore: TranscriptStore;
 	private readonly subagentStore: SubagentStore;
+	private readonly todoStore: TodoStore;
 	private readonly taskStore: TaskStore;
 	private readonly todoMemoryStore: TodoMemoryStore;
 	private readonly subagentRunner: SubagentRunner;
@@ -248,6 +253,7 @@ export class MemoryAgentRuntime implements AgentRuntime {
 		this.sessionStore = deps.sessionStore ?? new InMemorySessionStore();
 		this.transcriptStore = deps.transcriptStore ?? new InMemoryTranscriptStore();
 		this.subagentStore = deps.subagentStore ?? new InMemorySubagentStore();
+		this.todoStore = deps.todoStore ?? new InMemoryTodoStore();
 		this.taskStore = deps.taskStore ?? new InMemoryTaskStore();
 		this.todoMemoryStore = deps.todoMemoryStore ?? new InMemoryTodoMemoryStore();
 		this.workspace = deps.workspace ?? new InMemoryWorkspace("phase-1-runtime");
@@ -292,8 +298,7 @@ export class MemoryAgentRuntime implements AgentRuntime {
 			updatedAt: now,
 		};
 
-		await this.sessionStore.save(session);
-		await this.taskStore.saveTasks(session.id, session.tasks);
+		await this.persistSessionSnapshot(session);
 		const controller = createSessionController();
 		this.controllers.set(id, controller);
 		controller.push(this.createEvent(id, "session_started"));
@@ -332,7 +337,7 @@ export class MemoryAgentRuntime implements AgentRuntime {
 		const controller = this.requireController(sessionId);
 
 		session = this.appendMessage(session, "user", [{ type: "text", text: content }]);
-		await this.sessionStore.save(session);
+		await this.persistSessionSnapshot(session);
 
 		for (let turn = 0; turn < session.config.maxTurnsPerMessage; turn += 1) {
 			session = await this.requireSession(sessionId);
@@ -354,7 +359,7 @@ export class MemoryAgentRuntime implements AgentRuntime {
 						transcriptRef: session.transcriptRef,
 					}),
 				);
-				await this.sessionStore.save(session);
+				await this.persistSessionSnapshot(session);
 			}
 
 			const systemPrompt = await this.buildSystemPrompt(session);
@@ -371,7 +376,7 @@ export class MemoryAgentRuntime implements AgentRuntime {
 			}
 
 			session = this.appendMessage(session, "assistant", result.content);
-			await this.sessionStore.save(session);
+			await this.persistSessionSnapshot(session);
 
 			if (result.stopReason !== "tool_use") {
 				controller.push(
@@ -404,7 +409,7 @@ export class MemoryAgentRuntime implements AgentRuntime {
 						isError: toolResult.isError,
 					},
 				]);
-				await this.sessionStore.save(session);
+				await this.persistSessionSnapshot(session);
 
 				controller.push(
 					this.createEvent(sessionId, "tool_result", {
@@ -425,7 +430,7 @@ export class MemoryAgentRuntime implements AgentRuntime {
 						failedAttempts + 1,
 					);
 					session = this.appendRuntimeReminder(session, reminder.content);
-					await this.sessionStore.save(session);
+					await this.persistSessionSnapshot(session);
 				}
 
 				if (toolResult.meta?.action === "compact") {
@@ -438,7 +443,7 @@ export class MemoryAgentRuntime implements AgentRuntime {
 						"manual",
 					);
 					session = manualCompact.session;
-					await this.sessionStore.save(session);
+					await this.persistSessionSnapshot(session);
 					controller.push(
 						this.createEvent(sessionId, "compact", {
 							reason: "manual",
@@ -462,7 +467,7 @@ export class MemoryAgentRuntime implements AgentRuntime {
 				}
 			}
 
-			await this.sessionStore.save(session);
+			await this.persistSessionSnapshot(session);
 		}
 
 		controller.push(
@@ -574,7 +579,7 @@ export class MemoryAgentRuntime implements AgentRuntime {
 	 */
 	async shutdownSession(sessionId: string): Promise<void> {
 		const session = await this.requireSession(sessionId);
-		await this.sessionStore.save({
+		await this.persistSessionSnapshot({
 			...session,
 			closedAt: new Date().toISOString(),
 		});
@@ -772,8 +777,18 @@ export class MemoryAgentRuntime implements AgentRuntime {
 					updatedAt: new Date().toISOString(),
 				};
 				snapshot = next;
-				await this.sessionStore.save(next);
-				await this.taskStore.saveTasks(sessionId, next.tasks);
+				await this.persistSessionSnapshot(next);
+			},
+			loadTodos: async () => this.todoStore.loadTodos(sessionId),
+			saveTodos: async (todos) => {
+				const current = await this.requireSession(sessionId);
+				const next = {
+					...current,
+					todos,
+					updatedAt: new Date().toISOString(),
+				};
+				snapshot = next;
+				await this.persistSessionSnapshot(next);
 			},
 			loadTasks: async () => this.taskStore.loadTasks(sessionId),
 			saveTasks: async (tasks) => {
@@ -784,8 +799,7 @@ export class MemoryAgentRuntime implements AgentRuntime {
 					updatedAt: new Date().toISOString(),
 				};
 				snapshot = next;
-				await this.taskStore.saveTasks(sessionId, tasks);
-				await this.sessionStore.save(next);
+				await this.persistSessionSnapshot(next);
 			},
 			saveTodoMemory: async (todos) => {
 				await this.todoMemoryStore.saveLatestTodos(sessionId, todos);
@@ -867,24 +881,39 @@ export class MemoryAgentRuntime implements AgentRuntime {
 	}
 
 	/**
-	 * 用独立 TaskStore 中的最新快照覆盖 session 内嵌 task。
-	 * 这样可以保持 Worker/API 的兼容返回结构，同时把 task 的真实持久化边界迁移到独立表。
+	 * 统一持久化 session 及其已拆分的 todo/task 快照。
+	 * @param session 会话快照
+	 */
+	private async persistSessionSnapshot(session: SessionState): Promise<void> {
+		await this.todoStore.saveTodos(session.id, session.todos);
+		await this.taskStore.saveTasks(session.id, session.tasks);
+		await this.sessionStore.save(session);
+	}
+
+	/**
+	 * 用独立 TodoStore / TaskStore 中的最新快照覆盖 session 内嵌数据。
+	 * 这样可以保持 Worker/API 的兼容返回结构，同时把真正的持久化边界迁移到独立表。
 	 * @param session 原始会话快照
-	 * @returns 已补齐 task 的会话快照
+	 * @returns 已补齐 todo/task 的会话快照
 	 */
 	private async hydrateSessionTasks(session: SessionState): Promise<SessionState> {
+		const persistedTodos = await this.todoStore.loadTodos(session.id);
 		const persistedTasks = await this.taskStore.loadTasks(session.id);
+		if (!persistedTodos && session.todos.length > 0) {
+			// 兼容旧会话：此前 todo 仍内嵌在 session payload 中。
+			await this.todoStore.saveTodos(session.id, session.todos);
+		}
 		if (!persistedTasks) {
 			// 兼容旧会话：此前 task 仍内嵌在 session payload 中。
 			// 第一次读到旧数据时回填独立 TaskStore，后续再统一走独立表。
 			if (session.tasks.length > 0) {
 				await this.taskStore.saveTasks(session.id, session.tasks);
 			}
-			return session;
 		}
 		return {
 			...session,
-			tasks: persistedTasks,
+			todos: persistedTodos ?? session.todos,
+			tasks: persistedTasks ?? session.tasks,
 		};
 	}
 

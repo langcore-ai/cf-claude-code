@@ -6,6 +6,7 @@ import {
 	D1SubagentStore,
 	D1TaskStore,
 	D1TodoMemoryStore,
+	D1TodoStore,
 	D1TranscriptStore,
 } from "../adapters";
 import { createDurableRuntime as createDurableRuntimeFactory, WorkspaceStateExecutor } from "../core";
@@ -155,6 +156,7 @@ describe("durable workspace and stores", () => {
 		const transcriptStore = new D1TranscriptStore(sql, { namespace: "runtime" });
 		const subagentStore = new D1SubagentStore(sql, { namespace: "runtime" });
 		const taskStore = new D1TaskStore(sql, { namespace: "runtime" });
+		const todoStore = new D1TodoStore(sql, { namespace: "runtime" });
 		const todoMemoryStore = new D1TodoMemoryStore(sql, { namespace: "runtime" });
 
 		const session = createSession();
@@ -201,6 +203,17 @@ describe("durable workspace and stores", () => {
 		]);
 		const persistedTasks = await taskStore.loadTasks(session.id);
 		expect(persistedTasks?.[0]?.status).toBe("in_progress");
+
+		await todoStore.saveTodos(session.id, [
+			{
+				id: "todo-1",
+				content: "ship auth",
+				status: "pending",
+				priority: "high",
+			},
+		]);
+		const persistedTodos = await todoStore.loadTodos(session.id);
+		expect(persistedTodos?.[0]?.content).toBe("ship auth");
 
 		await todoMemoryStore.saveLatestTodos(session.id, [
 			{

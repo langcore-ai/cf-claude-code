@@ -155,7 +155,8 @@
 - 不要把 `git` 作为本目录的核心叙事，工作区本身才是主目标。
 - 当前 runtime 已通过 `state_exec` 暴露结构化 `state.*`，但还没有把 shell 的全部执行面扩展到 `git.*`、更完整的 sandbox/provider 编排。
 - 当前 prompt 与工具描述会明确禁止把 `/` 当成文件路径；在根目录创建文件时，必须使用 `/<filename>` 这种具体路径。
-- 当前 durable state 已覆盖 session / transcript / subagent jobs / todo short-term memory / task board。
+- 当前 durable state 已覆盖 session / transcript / subagent jobs / 当前 todo / todo short-term memory / task board。
+- 当前 todo 列表现在以独立 `TodoStore` 持久化；`SessionState.todos` 仍然保留，但主要承担 Worker/API 兼容返回结构，不再是 todo 的唯一持久化来源。
 - task board 现在以独立 `TaskStore` 持久化；`SessionState.tasks` 仍然保留，但主要承担 Worker/API 兼容返回结构，不再是 task 的唯一持久化来源。
 - continuity compact 当前会要求模型按 reverse 风格输出结构化摘要段落，并优先提取 `<summary>...</summary>` 作为最终 `compactSummary`；若模型额外输出 `<analysis>`，runtime 会在持久化前剥离。
 - `SessionState.mode` 当前也会随 session snapshot 一起持久化，因此 compact 和 session 恢复后仍会保留 `plan` / `normal` 状态。
@@ -163,12 +164,15 @@
   - `${namespace}_sessions`：整份 `SessionState` 快照
   - `${namespace}_transcripts`：compact 前的消息快照
   - `${namespace}_subagent_jobs`：subagent job 记录
+  - `runtime_todos`：当前会话的 todo 列表；字段为 `namespace`、`session_id`、`payload`、`updated_at`
   - `runtime_todo_memory`：最近一次非空 Todo 快照；字段为 `namespace`、`session_id`、`payload`、`updated_at`
-- `runtime_tasks`：当前会话的 task board 快照；字段为 `namespace`、`session_id`、`payload`、`updated_at`
+  - `runtime_tasks`：当前会话的 task board 快照；字段为 `namespace`、`session_id`、`payload`、`updated_at`
 - 正式迁移文件当前位于：
   - [migrations/0001_runtime_todo_memory.sql](/Users/igmainc/Projects/cf-claude-code/migrations/0001_runtime_todo_memory.sql)
   - [migrations/0002_runtime_tasks.sql](/Users/igmainc/Projects/cf-claude-code/migrations/0002_runtime_tasks.sql)
+  - [migrations/0003_runtime_todos.sql](/Users/igmainc/Projects/cf-claude-code/migrations/0003_runtime_todos.sql)
 - `runtime_todo_memory` 通过 `(namespace, session_id)` 复合主键隔离不同 runtime 命名空间，只服务 runtime 内部的 Todo 连续性提示，不承担宿主级启动恢复或 project 级任务管理语义。
+- `runtime_todos` 同样通过 `(namespace, session_id)` 复合主键隔离不同 runtime 命名空间；runtime 恢复旧 session 时，会把历史 `SessionState.todos` 回填进独立表，避免升级后丢失旧 todo 数据。
 - `runtime_tasks` 同样通过 `(namespace, session_id)` 复合主键隔离不同 runtime 命名空间；runtime 恢复旧 session 时，会把历史 `SessionState.tasks` 回填进独立表，避免升级后丢失旧 task 数据。
 - `Bash` / `WebFetch` / `WebSearch` 当前首版不新增 D1 表：
   - Bash 不保留跨请求 shell session，也不持久化最近命令结果

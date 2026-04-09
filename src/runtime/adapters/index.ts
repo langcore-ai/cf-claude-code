@@ -3,12 +3,14 @@ export { InMemorySessionStore } from "./session-store";
 export { InMemorySubagentStore } from "./subagent-store";
 export { InMemoryTaskStore } from "./task-store";
 export { InMemoryTodoMemoryStore } from "./todo-memory-store";
+export { InMemoryTodoStore } from "./todo-store";
 export {
 	adaptSqlSource,
 	D1SessionStore,
 	D1SubagentStore,
 	D1TaskStore,
 	D1TodoMemoryStore,
+	D1TodoStore,
 	D1TranscriptStore,
 	normalizeNamespace,
 	type RuntimeSqlBackend,

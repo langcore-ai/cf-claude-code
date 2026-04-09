@@ -9,6 +9,7 @@ import type {
 	SubagentStore,
 	TaskStore,
 	TodoItem,
+	TodoStore,
 	TodoMemoryStore,
 } from "../types";
 import type { TranscriptStore } from "./transcript-store";
@@ -344,6 +345,92 @@ export class D1TodoMemoryStore implements TodoMemoryStore {
 		);
 		const payload = rows[0]?.payload;
 		return payload ? JSON.parse(payload) : null;
+	}
+
+	/**
+	 * 初始化表结构
+	 */
+	private async ensureInit(): Promise<void> {
+		if (this.initialized) {
+			return;
+		}
+
+		await this.sql.run(
+			`CREATE TABLE IF NOT EXISTS ${this.tableName} (
+				namespace TEXT NOT NULL,
+				session_id TEXT NOT NULL,
+				payload TEXT NOT NULL,
+				updated_at TEXT NOT NULL,
+				PRIMARY KEY (namespace, session_id)
+			)`,
+		);
+		this.initialized = true;
+	}
+}
+
+/**
+ * D1-backed TodoStore。
+ * 当前 todo 列表独立持久化，避免只依赖 session 快照整存。
+ */
+export class D1TodoStore implements TodoStore {
+	private readonly sql: RuntimeSqlBackend;
+	private readonly tableName: string;
+	private readonly namespace: string;
+	private initialized = false;
+
+	/**
+	 * @param source SQL 数据源
+	 * @param options namespace 配置
+	 */
+	constructor(source: SqlSource, options: SqlNamespaceOptions = {}) {
+		this.sql = adaptSqlSource(source);
+		this.tableName = "runtime_todos";
+		this.namespace = normalizeNamespace(options.namespace);
+	}
+
+	/**
+	 * 保存当前会话 todo 快照
+	 * @param sessionId 会话 id
+	 * @param todos todo 列表
+	 */
+	async saveTodos(sessionId: string, todos: TodoItem[]): Promise<void> {
+		await this.ensureInit();
+		await this.sql.run(
+			`INSERT OR REPLACE INTO ${this.tableName} (namespace, session_id, payload, updated_at) VALUES (?, ?, ?, ?)`,
+			this.namespace,
+			sessionId,
+			JSON.stringify(todos),
+			new Date().toISOString(),
+		);
+	}
+
+	/**
+	 * 读取当前会话 todo 快照
+	 * @param sessionId 会话 id
+	 * @returns todo 列表；不存在时返回 null
+	 */
+	async loadTodos(sessionId: string): Promise<TodoItem[] | null> {
+		await this.ensureInit();
+		const rows = await this.sql.query<{ payload: string }>(
+			`SELECT payload FROM ${this.tableName} WHERE namespace = ? AND session_id = ?`,
+			this.namespace,
+			sessionId,
+		);
+		const payload = rows[0]?.payload;
+		return payload ? JSON.parse(payload) : null;
+	}
+
+	/**
+	 * 删除会话 todo 快照
+	 * @param sessionId 会话 id
+	 */
+	async deleteTodos(sessionId: string): Promise<void> {
+		await this.ensureInit();
+		await this.sql.run(
+			`DELETE FROM ${this.tableName} WHERE namespace = ? AND session_id = ?`,
+			this.namespace,
+			sessionId,
+		);
 	}
 
 	/**

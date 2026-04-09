@@ -348,6 +348,27 @@ export interface TodoMemoryStore {
 	loadLatestTodos(sessionId: string): Promise<TodoItem[] | null>;
 }
 
+/** Todo 独立持久化存储接口 */
+export interface TodoStore {
+	/**
+	 * 保存会话当前 todo 快照
+	 * @param sessionId 会话 id
+	 * @param todos todo 列表
+	 */
+	saveTodos(sessionId: string, todos: TodoItem[]): Promise<void>;
+	/**
+	 * 读取会话当前 todo 快照
+	 * @param sessionId 会话 id
+	 * @returns todo 列表；不存在时返回 null
+	 */
+	loadTodos(sessionId: string): Promise<TodoItem[] | null>;
+	/**
+	 * 删除会话的 todo 快照
+	 * @param sessionId 会话 id
+	 */
+	deleteTodos(sessionId: string): Promise<void>;
+}
+
 /** Task 独立持久化存储接口 */
 export interface TaskStore {
 	/**

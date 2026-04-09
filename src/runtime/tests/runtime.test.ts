@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { InMemorySessionStore, InMemoryTaskStore, InMemoryTodoMemoryStore } from "../adapters";
+import { InMemorySessionStore, InMemoryTaskStore, InMemoryTodoMemoryStore, InMemoryTodoStore } from "../adapters";
 import { createMemoryRuntime, MemoryAgentRuntime, SUBAGENT_TOOL_NAMES } from "../core";
 import { InMemorySkillProvider } from "../skills";
 import type { AIClient, GenerateTurnInput, ModelTurnResult } from "../types";
@@ -161,6 +161,47 @@ describe("MemoryAgentRuntime", () => {
 		expect(restored.tasks[0]?.id).toBe("legacy-task-1");
 		const persistedTasks = await taskStore.loadTasks(session.id);
 		expect(persistedTasks?.[0]?.id).toBe("legacy-task-1");
+	});
+
+	test("todo 升级到独立 store 后仍兼容旧 session payload 恢复", async () => {
+		const sessionStore = new InMemorySessionStore();
+		const todoStore = new InMemoryTodoStore();
+		const runtime = new MemoryAgentRuntime({
+			aiClient: new StubAiClient(async () => ({
+				stopReason: "end_turn",
+				content: [{ type: "text", text: "ok" }],
+			})),
+			sessionStore,
+			todoStore,
+			workspace: new InMemoryWorkspace("test"),
+		});
+
+		const session = await runtime.startSession({
+			sessionId: "legacy-todo-session",
+			config: {
+				systemPrompt: "test",
+				tokenThreshold: 9999,
+				maxTurnsPerMessage: 4,
+			},
+		});
+
+		await sessionStore.save({
+			...(await runtime.getSession(session.id)),
+			todos: [
+				{
+					id: "legacy-todo-1",
+					content: "legacy todo",
+					status: "pending",
+					priority: "high",
+				},
+			],
+		});
+		await todoStore.deleteTodos(session.id);
+
+		const restored = await runtime.getSession(session.id);
+		expect(restored.todos[0]?.id).toBe("legacy-todo-1");
+		const persistedTodos = await todoStore.loadTodos(session.id);
+		expect(persistedTodos?.[0]?.id).toBe("legacy-todo-1");
 	});
 
 	test("tool_use 但没有工具块时失败", async () => {

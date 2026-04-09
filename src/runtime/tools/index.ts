@@ -21,6 +21,10 @@ export interface DefaultToolContext {
 	getSession(): Promise<SessionState>;
 	/** 覆写当前会话 */
 	updateSession(updater: (session: SessionState) => SessionState): Promise<void>;
+	/** 读取当前会话的独立 todo 快照 */
+	loadTodos?(): Promise<SessionState["todos"] | null>;
+	/** 保存当前会话的独立 todo 快照 */
+	saveTodos?(todos: SessionState["todos"]): Promise<void>;
 	/** 读取当前会话的独立 task 快照 */
 	loadTasks?(): Promise<SessionState["tasks"] | null>;
 	/** 保存当前会话的独立 task 快照 */

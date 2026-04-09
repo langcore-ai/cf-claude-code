@@ -26,6 +26,7 @@ export type {
 	TaskStatus,
 	TextBlock,
 	TodoItem,
+	TodoStore,
 	TodoMemoryStore,
 	TodoPriority,
 	TodoStatus,
