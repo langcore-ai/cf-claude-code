@@ -1,0 +1,6 @@
+{
+  "ossProjects": [
+    "Statsig"
+  ],
+  "purpose": "This code snippet appears to be part of the Statsig SDK, a feature management and experimentation platform. It includes code for data adapters, client initialization, user updates, and evaluation of feature gates, dynamic configs, and experiments. It also includes type conversion utilities."
+}

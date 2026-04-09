@@ -1,0 +1,6 @@
+{
+  "ossProjects": [
+    "Zod"
+  ],
+  "purpose": "This code snippet appears to be related to the Zod library, a TypeScript-first schema declaration and validation library. It includes functions for creating Zod schemas, converting them to JSON schema format, and defining various schema types (string, number, object, array, etc.). It also includes code for interacting with a large language model (LLM) to perform tasks such as command prefix detection and file path extraction. Additionally, it defines several tools for interacting with the local filesystem, such as reading files, listing directories, and executing bash commands."
+}

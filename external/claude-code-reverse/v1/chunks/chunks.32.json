@@ -1,0 +1,6 @@
+{
+  "ossProjects": [
+    "aws-sdk-js-v3"
+  ],
+  "purpose": "This code snippet is part of the AWS SDK for JavaScript (v3) and provides functionality for resolving AWS credentials, specifically focusing on SSO (Single Sign-On) and other credential sources. It includes modules for validating token expiry, reading and writing SSO tokens to files, resolving credentials from SSO profiles, static credentials, web identity tokens, and more. The code also handles endpoint resolution for STS (Security Token Service) and Bedrock Runtime, along with error handling and retry configurations."
+}

@@ -1,0 +1,8 @@
+{
+  "ossProjects": [
+    "node-fetch",
+    "web-streams-polyfill",
+    "undici"
+  ],
+  "purpose": "This code snippet appears to be a polyfill or implementation of the WHATWG Streams API, specifically focusing on ReadableStream, WritableStream, and TransformStream. It includes classes and functions for creating, manipulating, and interacting with streams, including handling backpressure, queuing strategies, and piping data between streams. It also includes some utilities for handling errors, timeouts, and abort signals."
+}

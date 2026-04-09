@@ -1,0 +1,6 @@
+{
+  "ossProjects": [
+    "highlight.js"
+  ],
+  "purpose": "This code snippet is a language definition for `Mathematica` (also known as Wolfram Language) for the `highlight.js` library. It defines how to syntax highlight Mathematica code, including numbers, symbols, operators, strings, comments, and other language-specific constructs. It uses regular expressions to identify different parts of the code and assigns them CSS classes for styling."
+}

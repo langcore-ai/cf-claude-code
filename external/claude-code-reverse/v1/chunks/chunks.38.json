@@ -1,0 +1,6 @@
+{
+  "ossProjects": [
+    "highlight.js"
+  ],
+  "purpose": "This code snippet contains language definition modules for highlight.js, a syntax highlighter written in JavaScript. Each module defines the keywords, patterns, and rules for highlighting a specific programming language. The languages covered in this snippet include Elm, Ruby, ERB, Erlang REPL, Erlang, Excel formulae, FIX, Flix, Fortran, F#, GAMS, GAUSS, G-code (ISO 6983), Gherkin, and GLSL."
+}

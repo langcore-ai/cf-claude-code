@@ -1,0 +1,6 @@
+{
+  "ossProjects": [
+    "aws-sdk-js-v3"
+  ],
+  "purpose": "This code snippet is part of the AWS SDK for JavaScript v3, specifically related to the STS (Security Token Service) client. It includes functionalities for parsing XML responses, handling user agent configuration, resolving endpoints, managing authentication, and processing various middleware components. The code defines how the STS client interacts with AWS services, including request signing, error handling, and data serialization/deserialization."
+}

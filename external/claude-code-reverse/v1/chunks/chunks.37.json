@@ -1,0 +1,6 @@
+{
+  "ossProjects": [
+    "highlight.js"
+  ],
+  "purpose": "This code snippet contains a collection of language definitions for the highlight.js library. Each function (e.g., oe5, ee5, te5, It5, Ct5, Bt5, At5, Vt5, Xt5, Yt5, _t5, Dt5, Qt5, ft5, qt5, vt5, Et5, Mt5, St5, Lt5, ht5, jt5, ct5, pt5, it5, nt5, rt5, at5, st5, ot5, et5, tt5, I19, d19, G19) defines the syntax highlighting rules for a specific programming language or file format. The languages covered include BASIC, Backus–Naur Form, Brainfuck, C++, C, C/AL, Cap’n Proto, Ceylon, Clean, Clojure, Clojure REPL, CMake, CoffeeScript, Coq, Caché Object Script, CSS, Crystal, C#, CSP, Device Tree, Django, DNS Zone, Dockerfile, Batch file (DOS), dsconfig, Dust, Extended Backus-Naur Form, Elixir."
+}

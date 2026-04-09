@@ -1,0 +1,6 @@
+{
+  "ossProjects": [
+    "aws-sdk-js-v3"
+  ],
+  "purpose": "This code snippet is part of the AWS SDK for JavaScript v3 (aws-sdk-js-v3), specifically related to the STS (Security Token Service) client. It defines the endpoint resolution logic, runtime configuration, client initialization, and command definitions for interacting with the STS service. It also includes code for handling event streams."
+}

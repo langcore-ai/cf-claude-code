@@ -1,0 +1,6 @@
+{
+  "ossProjects": [
+    "@anthropic-ai/claude-code"
+  ],
+  "purpose": "This code snippet appears to be the core logic of a command-line interface (CLI) application, likely named `claude-code` or similar, developed by Anthropic. It handles user input, interacts with a language model (likely Claude), manages tools and permissions, displays output, and handles updates and configuration. It includes components for interacting with the user, managing the conversation history, and integrating with external tools."
+}

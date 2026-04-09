@@ -1,0 +1,6 @@
+{
+  "ossProjects": [
+    "Sentry"
+  ],
+  "purpose": "This code snippet is part of the Sentry error tracking and performance monitoring SDK. It defines core functionalities related to capturing exceptions, messages, and events, managing scopes, and handling tracing and performance monitoring features. It includes functionalities for creating and managing spans, transactions, and metrics, as well as for sampling and sending events to the Sentry backend."
+}

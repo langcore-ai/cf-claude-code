@@ -1,0 +1,6 @@
+{
+  "ossProjects": [
+    "highlight.js"
+  ],
+  "purpose": "This code snippet appears to be a collection of language definition functions for the highlight.js library. Each function (e.g., `W49`, `w49`, `B49`, `A49`, `V49`, `X49`, `Y49`, `D49`, `H49`, `F49`, `g49`) defines the rules for syntax highlighting a specific language (SCSS, Shell Session, Smali, Smalltalk, SML, SQF, SQL, SQL(more), Stan, Stata, STEP Part 21). These rules include keywords, data types, string formats, comment styles, and other language-specific syntax elements. The `Y` function likely serves as a wrapper or helper function within highlight.js to register or process these language definitions."
+}

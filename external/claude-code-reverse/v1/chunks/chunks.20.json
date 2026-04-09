@@ -1,0 +1,6 @@
+{
+  "ossProjects": [
+    "aws-sdk-js-v3"
+  ],
+  "purpose": "This code snippet is part of the AWS SDK for JavaScript v3. It provides utilities for parsing XML and JSON, handling dates, encoding/decoding URIs, and managing exceptions. It includes modules for parsing XML documents, serializing data to XML, handling date and time formats, encoding and decoding URI components, and defining service exceptions."
+}

@@ -1,0 +1,6 @@
+{
+  "ossProjects": [
+    "highlight.js"
+  ],
+  "purpose": "This code snippet defines language syntax highlighting for several programming languages, including Matlab, Maxima, MEL, Mercury, MIPS Assembly, Mizar, Perl, Mojolicious, Monkey, MoonScript, N1QL, Nginx config, Nim, Nix, Node REPL, NSIS, Objective-C, OCaml, OpenSCAD, Oxygene, Parser3, and Packet Filter config. It's designed to be used with a syntax highlighting library like highlight.js to automatically detect and apply appropriate styling to code written in these languages."
+}

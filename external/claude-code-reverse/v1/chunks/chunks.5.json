@@ -1,0 +1,6 @@
+{
+  "ossProjects": [
+    "sentry-javascript"
+  ],
+  "purpose": "This code snippet is part of the Sentry JavaScript SDK. It appears to be a base64 encoded worker script. The script contains various utility functions for type checking, object manipulation, and data serialization. It also includes code for handling console logging, normalizing URLs, and managing rate limits. The worker script likely plays a role in processing and sending error reports and other data to Sentry."
+}

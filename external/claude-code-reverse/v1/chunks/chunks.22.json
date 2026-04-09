@@ -1,0 +1,6 @@
+{
+  "ossProjects": [
+    "aws-sdk-js-v3"
+  ],
+  "purpose": "This code snippet is part of the AWS SDK for JavaScript v3, specifically the `@aws-sdk/client-sso-oidc` package. It defines the client for the AWS SSO OIDC service, including command definitions, serialization/deserialization logic, endpoint resolution, and exception handling. It allows JavaScript applications to interact with the AWS SSO OIDC service to obtain access tokens and other credentials."
+}

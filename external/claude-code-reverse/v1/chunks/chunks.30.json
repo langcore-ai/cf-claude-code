@@ -1,0 +1,6 @@
+{
+  "ossProjects": [
+    "aws-sdk-js-v3"
+  ],
+  "purpose": "This code snippet is part of the AWS SDK for JavaScript v3 and provides functionality related to retry strategies, endpoint resolution, and authentication, specifically for the STS (Security Token Service) client. It includes modules for resolving client endpoint parameters, handling STS authentication configurations, defining serialization and deserialization logic for STS commands, and implementing credential providers."
+}

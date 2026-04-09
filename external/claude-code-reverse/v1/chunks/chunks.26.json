@@ -1,0 +1,6 @@
+{
+  "ossProjects": [
+    "aws-sdk-js-v3"
+  ],
+  "purpose": "This code snippet is part of the AWS SDK for JavaScript (v3) and provides functionality for assuming roles and retrieving credentials from various sources, including the Security Token Service (STS), SSO (Single Sign-On), environment variables, and configuration files. It defines the logic for serializing and deserializing requests and responses for STS operations like AssumeRole, GetCallerIdentity, etc. It also includes logic for handling different credential sources, such as SSO, web identity tokens, and static credentials, and for refreshing SSO tokens."
+}

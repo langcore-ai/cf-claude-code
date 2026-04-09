@@ -1,0 +1,6 @@
+{
+  "ossProjects": [
+    "highlight.js"
+  ],
+  "purpose": "This code snippet is a collection of language definition modules for the highlight.js library. Each module defines how to syntax highlight a specific programming language or data format. The languages covered include PostgreSQL, PHP, PHP template, Plain text, Pony, PowerShell, Processing, Python profiler, Prolog, .properties, Protocol Buffers, Puppet, PureBasic, Python, Q, QML, R, ReasonML, RenderMan RIB, Roboconf, RouterOS script, RenderMan RSL, Oracle Rules Language, Rust, SAS, Scala, Scheme, Scilab."
+}

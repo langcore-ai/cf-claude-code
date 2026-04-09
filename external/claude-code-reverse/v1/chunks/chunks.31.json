@@ -1,0 +1,6 @@
+{
+  "ossProjects": [
+    "aws-sdk-js-v3"
+  ],
+  "purpose": "This code snippet is part of the AWS SDK for JavaScript v3 and provides functionality for retrieving AWS credentials using various methods, including instance metadata, container metadata, environment variables, and SSO (Single Sign-On). It also includes logic for assuming roles and handling different credential sources. Specifically, the code focuses on the SSO part, defining the SSO client, commands, and related functionalities for interacting with the AWS SSO service to obtain credentials."
+}

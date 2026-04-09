@@ -1,0 +1,7 @@
+{
+  "ossProjects": [
+    "vscode",
+    "npm"
+  ],
+  "purpose": "This code snippet appears to be a sophisticated implementation of a Least Recently Used (LRU) cache, potentially with features like time-to-live (TTL) management, size-based eviction, and asynchronous fetching. It includes advanced features like stale-while-revalidate, abortable fetches, and stream processing, making it suitable for performance-critical applications where efficient caching is essential. It also includes file system utilities, such as walking a directory tree and determining file encodings."
+}

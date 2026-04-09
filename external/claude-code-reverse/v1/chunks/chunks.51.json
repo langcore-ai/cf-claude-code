@@ -1,0 +1,6 @@
+{
+  "ossProjects": [
+    "sharp"
+  ],
+  "purpose": "This code snippet is part of the `sharp` library, a high-performance Node.js module for image processing. It includes several modules related to color management, input handling, and metadata extraction. Specifically, it defines functions for parsing and manipulating colors, creating input descriptors for various image sources (buffers, files, streams), extracting image metadata, and handling stream-based input."
+}

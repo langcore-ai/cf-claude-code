@@ -1,0 +1,6 @@
+{
+  "ossProjects": [
+    "aws-sdk-js-v3"
+  ],
+  "purpose": "This code snippet is part of the AWS SDK for JavaScript v3, specifically the SSO (Single Sign-On) client. It defines the client class, configuration, endpoint resolution, middleware setup, and error handling for interacting with the AWS SSO service. It includes functionalities for assuming roles, retrieving credentials, and managing SSO sessions."
+}

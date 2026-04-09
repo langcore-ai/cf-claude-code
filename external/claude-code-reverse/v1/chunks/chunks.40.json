@@ -1,0 +1,4 @@
+{
+  "ossProjects": [],
+  "purpose": "This code snippet appears to be related to syntax highlighting for different programming languages. It defines functions that return language definitions for ISBL, Java, Javascript, JBoss CLI, JSON, and Julia. These language definitions are used by syntax highlighters to identify keywords, strings, comments, and other language-specific elements in the code, and then apply appropriate formatting to them."
+}

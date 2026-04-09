@@ -1,0 +1,7 @@
+{
+  "ossProjects": [
+    "Continue Code",
+    "Tengu"
+  ],
+  "purpose": "This code snippet appears to be part of a system that integrates with a 'Model Control Plane' (MCP) server. It handles communication with the server, manages capabilities, and provides tools and prompts for interacting with language models. It also includes markdown parsing functionality."
+}

@@ -1,0 +1,6 @@
+{
+  "ossProjects": [
+    "ink"
+  ],
+  "purpose": "This code snippet appears to be the core of the Ink library, a React-based framework for building interactive command-line applications. It handles rendering components to the terminal, managing input, and providing a focus management system. The code includes components for layout, text formatting, input handling, and UI elements like alerts, badges, selects, lists, progress bars, and spinners. It also includes logic for handling terminal input, parsing key presses, and managing terminal settings like raw mode."
+}

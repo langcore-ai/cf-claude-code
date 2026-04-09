@@ -1,0 +1,6 @@
+{
+  "ossProjects": [
+    "Sentry"
+  ],
+  "purpose": "This code snippet is a part of the Sentry error tracking and performance monitoring SDK. It provides various utility functions for capturing errors, messages, and events, managing scopes and contexts, instrumenting code, and preparing data for sending to Sentry. It includes functionalities for handling sessions, transactions, breadcrumbs, and user information, as well as utilities for normalizing data, parsing stack traces, and managing rate limits."
+}

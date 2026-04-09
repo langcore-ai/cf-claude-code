@@ -1,0 +1,7 @@
+{
+  "ossProjects": [
+    "@aws-sdk/signature-v4",
+    "@smithy/smithy-client"
+  ],
+  "purpose": "This code snippet is part of the AWS SDK for JavaScript, specifically related to request signing and handling. It includes modules for signature version 4 (SigV4) signing, utilities for encoding and decoding data, and handling HTTP requests. The code also includes modules for handling credentials, building query strings, and escaping URI components. It also includes modules for handling clock skew and other utilities."
+}

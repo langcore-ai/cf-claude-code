@@ -1,0 +1,6 @@
+{
+  "ossProjects": [
+    "highlight.js"
+  ],
+  "purpose": "This code snippet contains a collection of language definition functions for the highlight.js library. Each function (e.g., `U19`, `v19`, `E19`, `M19`, `S19`, `$19`, `m19`, `l19`, `b19`, `h19`, `gV2`, `i19`, `a19`, `s19`, `t19`, `I09`) defines the syntax highlighting rules for a specific programming language or markup language. These rules include keywords, comments, strings, numbers, and other language-specific constructs. The functions are designed to be used by highlight.js to automatically detect and highlight code snippets in web pages."
+}

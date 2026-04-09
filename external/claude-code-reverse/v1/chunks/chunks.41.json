@@ -1,0 +1,6 @@
+{
+  "ossProjects": [
+    "highlight.js"
+  ],
+  "purpose": "This code snippet appears to be a collection of language definition modules for the highlight.js library. highlight.js is a popular JavaScript library used for syntax highlighting in web pages. Each module defines the rules and keywords for highlighting a specific programming language or markup format. The modules include definitions for Kotlin, Lasso, LaTeX, LDIF, Leaf, Less, Lisp, LiveCode, LLVM IR, LSL (Linden Scripting Language), Lua, and Makefile."
+}

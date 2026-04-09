@@ -1,0 +1,7 @@
+{
+  "ossProjects": [
+    "jsdom",
+    "htmlparser2"
+  ],
+  "purpose": "This code snippet appears to be related to HTML parsing and serialization. It defines a parser with different modes and rules for handling various HTML elements, attributes, and tokens. It also includes functionality for serializing an HTML tree back into a string representation. It is likely part of a larger HTML processing library or tool."
+}

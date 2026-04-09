@@ -1,0 +1,6 @@
+{
+  "ossProjects": [
+    "aws-sdk-js-v3"
+  ],
+  "purpose": "This code snippet is part of the AWS SDK for JavaScript v3, specifically for the Cognito Identity service. It defines the serialization and deserialization logic for various commands related to managing Cognito Identity Pools and Identities. It includes functions for building HTTP requests, handling responses, and processing errors for each API operation."
+}

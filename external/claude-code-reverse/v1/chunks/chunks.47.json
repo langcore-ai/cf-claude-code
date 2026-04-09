@@ -1,0 +1,7 @@
+{
+  "ossProjects": [
+    "highlight.js",
+    "jsdom"
+  ],
+  "purpose": "The first code snippet registers a large number of language definitions for a syntax highlighter, likely highlight.js. The second and third snippets, along with the fourth, appear to be related to HTML parsing, character encoding handling, and error reporting, possibly from a project like jsdom. They define constants for code points, surrogate pair handling, control character checks, and a class for processing HTML input streams with error tracking."
+}

@@ -1,0 +1,6 @@
+{
+  "ossProjects": [
+    "Sentry"
+  ],
+  "purpose": "This code snippet is part of the Sentry Node.js SDK. It provides various functionalities for error tracking, performance monitoring, and integration with different Node.js frameworks and libraries. It includes features like: \n\n- Capturing exceptions and errors\n- Creating breadcrumbs for user actions\n- Tracing HTTP requests and database queries\n- Integrating with Express, Postgres, MySQL, MongoDB, Prisma, GraphQL, and Apollo\n- Setting up async context strategies\n- Providing integrations for console logging, context information, local variables, and modules\n- Handling uncaught exceptions and unhandled rejections\n- Supporting HTTP proxy agents\n- Normalizing request arguments and extracting URLs\n- Creating rate limiters\n- Integrating with Undici\n- Providing a spotlight integration\n- Setting up default integrations and stack parsers\n- Initializing the Sentry SDK"
+}

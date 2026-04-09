@@ -1,0 +1,6 @@
+{
+  "ossProjects": [
+    "claude-code"
+  ],
+  "purpose": "This code snippet appears to be the main command-line interface (CLI) logic for `claude-code`, a tool for interacting with the Claude AI model. It defines various commands and options for starting interactive sessions, managing configuration, handling approved tools, configuring MCP (Message Communication Protocol) servers, and running health checks. It handles user input, interacts with the Claude AI model, and manages the tool's configuration and state."
+}

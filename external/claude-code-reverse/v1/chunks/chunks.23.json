@@ -1,0 +1,6 @@
+{
+  "ossProjects": [
+    "aws-sdk-js-v3"
+  ],
+  "purpose": "This code snippet is part of the AWS SDK for JavaScript v3 (aws-sdk-js-v3). Specifically, it seems to be related to the AWS Security Token Service (STS) and AWS Single Sign-On OIDC (SSO OIDC) clients. The code handles serialization, deserialization, and endpoint resolution for STS and SSO OIDC commands, including token creation, client registration, and device authorization. It also includes logic for handling different types of exceptions and resolving credentials using various providers (SSO, static, web identity, etc.)."
+}

@@ -1,0 +1,7 @@
+{
+  "ossProjects": [
+    "jsdom",
+    "htmlparser2"
+  ],
+  "purpose": "This code snippet is part of an HTML parser, likely used for parsing HTML documents into a DOM tree. It includes functionalities for tokenizing HTML, handling different parsing states, managing the stack of open elements, and adjusting tag names and attributes based on the context (MathML, SVG, XML). It also includes logic for error reporting and source code location tracking."
+}

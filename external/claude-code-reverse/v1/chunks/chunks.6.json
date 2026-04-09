@@ -1,0 +1,6 @@
+{
+  "ossProjects": [
+    "Sentry"
+  ],
+  "purpose": "This code snippet is part of the Sentry error monitoring SDK. It provides various integrations and utilities for capturing errors, performance data, and other relevant information from Node.js applications. It includes features like ANR (Application Not Responding) detection, offline event caching, request data extraction, and instrumentation for common libraries like Express, Hapi, and more. It also provides utilities for working with cron jobs and scheduling."
+}

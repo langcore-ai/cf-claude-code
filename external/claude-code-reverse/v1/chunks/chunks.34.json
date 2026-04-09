@@ -1,0 +1,6 @@
+{
+  "ossProjects": [
+    "google-auth-library-nodejs"
+  ],
+  "purpose": "This code snippet is part of the `google-auth-library-nodejs` library, which provides authentication mechanisms for Google APIs in Node.js. It includes various authentication strategies like OAuth2, JWT, and external account federation, along with utilities for token handling, request signing, and certificate verification. The code defines classes for different authentication methods (OAuth2Client, JWT, Compute, etc.) and handles token refreshing, request metadata, and ID token verification. It also includes support for AWS and Identity Pools."
+}

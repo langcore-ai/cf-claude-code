@@ -1,0 +1,6 @@
+{
+  "ossProjects": [
+    "sharp"
+  ],
+  "purpose": "This code snippet appears to be part of the `sharp` image processing library. It defines and implements various image manipulation operations such as resizing, extending, extracting regions, applying color transformations, compositing images, and encoding/decoding images in different formats. It also includes utilities for handling command-line arguments, color manipulation, and text formatting."
+}

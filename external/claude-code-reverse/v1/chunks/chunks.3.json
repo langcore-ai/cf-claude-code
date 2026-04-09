@@ -1,0 +1,6 @@
+{
+  "ossProjects": [
+    "Sentry"
+  ],
+  "purpose": "This code snippet is part of the Sentry error monitoring SDK. It includes several integrations and functionalities related to tracing, performance monitoring, and error handling in both browser and Node.js environments. It provides tools for instrumenting HTTP requests, database queries, and user interactions, as well as for collecting performance metrics and filtering error events."
+}
